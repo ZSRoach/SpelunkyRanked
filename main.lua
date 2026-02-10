@@ -17,6 +17,13 @@ local lastServerOp = 0 -- time of last server operation
 
 local matchStarted = false
 local matchResultReceived = false
+local inQueue = false
+
+local categoryType = nil
+local seed = 0xAAAAAAAAAAAAAAAA
+local currentSaves = {}
+local furthestLevel = {1,1}
+
 
 local function startServer()
     server = UdpServer:new(gameAddress,gamePort)
@@ -54,9 +61,10 @@ local function timedOps()
             elseif event == "match_start" then 
                 if not matchStarted then
                     matchStarted = true
-                    local category = data.category
-                    local seed = data.seed
+                    categoryType = data.category
+                    seed = data.seed
                     -- match start stuff
+                    startMatch()
                 end
                 server:send(json.encode({ event = "ack", ack_event = "match_start" }), source)
 
@@ -69,6 +77,7 @@ local function timedOps()
                 if not matchResultReceived then
                     matchResultReceived = true
                     local result = data.result
+                    endMatch()
                 end
                 server:send(json.encode({ event = "ack", ack_event = "match_result"}), source)
 
@@ -104,11 +113,52 @@ local function completionReport()
     server:send(json.encode({ event = "completion" }), bridgeAddress)
 end
 
+local function startMatch()
+    state.world_next=1
+    state.level_next=1
+    state.theme_next=1
+    state.screen_next=12
+    set_adventure_seed(seed,seed)
+    load_screen()
+end
+
+local function saveProgress()
+    for index, save in ipairs(currentSaves) do
+        if (save.level == state.level) and (save.world == state.world) then
+            return
+        end
+    end
+    saveInfo = {
+        level = state.level
+        world = state.world
+        theme = state.theme
+        aggro = state.shoppie_aggro
+        tAggro = state.merchant_aggro
+        lFlags = state.level_flags
+        qFlags = state.quest_flags
+        pFlags = state.presence_flags
+        time = state.time_total
+        inventory = state.items.player_inventory[1]
+    }
+    table.insert(currentSaves, saveInfo)
+end
+
+local function endMatch()
+    state.world_next = 1
+    state.level_next = 1
+    state.theme_next = 17
+    state.screen_next = 11
+    load_screen()
+    currentSaves = {}
+    furthestLevel = {1,1}
+    matchStarted = false
+    matchResultReceived = false
+    --some sort of notification of win/loss
+
 set_callback(startServer, ON.LOAD)
 set_callback(timedOps, ON.GAMEFRAME)
 
-categoryType = nil
-seed = 0xAAAAAAAAAAAAAAAA
+
 
 
 
