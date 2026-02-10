@@ -25,6 +25,12 @@ local currentSaves = {}
 local furthestLevel = {1,1}
 
 
+local function spawnSign()
+    local signUID = spawn_entity(ENT_TYPE.ITEM_SPEEDRUN_SIGN, 46, 84, LAYER.FRONT, 0, 0)
+    sign = get_entity(signUID)
+    -- set button flag
+end
+
 local function startServer()
     server = UdpServer:new(gameAddress,gamePort)
     if not server:is_open() then
@@ -157,6 +163,7 @@ local function endMatch()
 
 set_callback(startServer, ON.LOAD)
 set_callback(timedOps, ON.GAMEFRAME)
+set_callback(spawnSign, ON.CAMP)
 
 
 
