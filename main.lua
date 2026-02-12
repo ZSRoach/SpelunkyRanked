@@ -8,6 +8,7 @@ meta = {
 local button_prompts = require("ButtonPrompts/button_prompts")
 local inputs = require("Inputs.inputs")
 
+-- server variables
 local gameAddress = "127.0.0.1"
 local gamePort = 21587
 local bridgeAddress = "127.0.0.1:21588"
@@ -15,6 +16,8 @@ local bridgeAddress = "127.0.0.1:21588"
 local serverDelay = 3 -- time in seconds to wait before doing any server actions
 local lastServerOp = 0 -- time of last server operation
 
+
+-- match variables
 local matchStarted = false
 local matchResultReceived = false
 local inQueue = false
@@ -24,6 +27,8 @@ local seed = 0xAAAAAAAAAAAAAAAA
 local currentSaves = {}
 local furthestLevel = {1,1}
 
+-- camp variables
+local signOpen = false
 
 local function spawnSign()
     local signUID = spawn_entity(ENT_TYPE.ITEM_SPEEDRUN_SIGN, 46, 84, LAYER.FRONT, 0, 0)
@@ -32,10 +37,6 @@ local function spawnSign()
     button_prompts.spawn_button_prompt_on(button_prompts.PROMPT_TYPE.INTERACT, signUID, function()
         set_callback(renderWindow, ON.RENDER_PRE_HUD)
     end)
-end
-
-function renderWindow(ctx)
-    ctx:draw_screen_texture(TEXTURE.DATA_TEXTURES_LOADING_0, 1, 1, 1, 10, 10, 1, Color:white())
 end
 
 local function startServer()
@@ -127,6 +128,7 @@ local function completionReport()
 end
 
 local function startMatch()
+    --this doesnt work, make it do
     state.world_next=1
     state.level_next=1
     state.theme_next=1
