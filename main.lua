@@ -28,7 +28,14 @@ local furthestLevel = {1,1}
 local function spawnSign()
     local signUID = spawn_entity(ENT_TYPE.ITEM_SPEEDRUN_SIGN, 46, 84, LAYER.FRONT, 0, 0)
     sign = get_entity(signUID)
-    -- set button flag
+    sign.flags = clr_flag(sign.flags, ENT_FLAG.ENABLE_BUTTON_PROMPT)
+    button_prompts.spawn_button_prompt_on(button_prompts.PROMPT_TYPE.INTERACT, signUID, function()
+        set_callback(renderWindow, ON.RENDER_PRE_HUD)
+    end)
+end
+
+function renderWindow(ctx)
+    ctx:draw_screen_texture(TEXTURE.DATA_TEXTURES_LOADING_0, 1, 1, 1, 10, 10, 1, Color:white())
 end
 
 local function startServer()
@@ -135,15 +142,15 @@ local function saveProgress()
         end
     end
     saveInfo = {
-        level = state.level
-        world = state.world
-        theme = state.theme
-        aggro = state.shoppie_aggro
-        tAggro = state.merchant_aggro
-        lFlags = state.level_flags
-        qFlags = state.quest_flags
-        pFlags = state.presence_flags
-        time = state.time_total
+        level = state.level,
+        world = state.world,
+        theme = state.theme,
+        aggro = state.shoppie_aggro,
+        tAggro = state.merchant_aggro,
+        lFlags = state.level_flags,
+        qFlags = state.quest_flags,
+        pFlags = state.presence_flags,
+        time = state.time_total,
         inventory = state.items.player_inventory[1]
     }
     table.insert(currentSaves, saveInfo)
@@ -160,9 +167,10 @@ local function endMatch()
     matchStarted = false
     matchResultReceived = false
     --some sort of notification of win/loss
+end
 
-set_callback(startServer, ON.LOAD)
-set_callback(timedOps, ON.GAMEFRAME)
+-- set_callback(startServer, ON.LOAD)
+-- set_callback(timedOps, ON.GAMEFRAME)
 set_callback(spawnSign, ON.CAMP)
 
 
@@ -177,3 +185,4 @@ end
 
 
 set_callback(loadSeed, ON.PRE_LOAD_SCREEN)
+-- set_callback(renderWindow, ON.RENDER_PRE_HUD)
