@@ -6,6 +6,8 @@
 
 ## Overview
 
+Join the [Discord](https://discord.gg/HJDnd37yN7) to learn about everything Spelunky Ranked related, and become a part of the community!
+
 Spelunky Ranked is a **competitive speedrunning mod and companion application** for Spelunky 2 in which players compete in matchmade 1v1s on the same seed.
 
 - **Part 1:** The mod itself, which runs via Modlunky
