@@ -892,10 +892,6 @@ function timedOps()
             -- Heartbeat 
             if event == "ping" then
                 server:send(json.encode({ event = "pong" }), bridgeAddress)
-                if bridgeConnected == false then
-                    queueStateText = "Not in queue"
-                end
-                bridgeConnected = true
             elseif event == "pong" then
                 if bridgeConnected == false then
                     queueStateText = "Not in queue"

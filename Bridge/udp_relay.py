@@ -131,7 +131,13 @@ class UDPRelay(QObject):
                 raw, addr = self._sock.recvfrom(UDP_BUFFER_SIZE)
             except socket.timeout:
                 continue
-            except OSError:
+            except OSError as e:
+                # On Windows, sending UDP to a port with no listener causes
+                # ICMP "port unreachable" to be delivered as WSAECONNRESET
+                # (WinError 10054) on the next recvfrom. This is recoverable —
+                # keep looping until the Game starts listening.
+                if getattr(e, 'winerror', None) == 10054:
+                    continue
                 break
 
             try:
