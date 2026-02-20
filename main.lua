@@ -1,6 +1,6 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.0',
+    version = '1.01',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -34,7 +34,7 @@ categoryList = {
 }
 shopCategories = {
     "Any%",
-    "Sunken City",
+    "Sunken City%",
     "No TP Any%",
     "No TP Sunken City%",
     "No TP Eggplant%",
@@ -1381,7 +1381,7 @@ function forceTrans()
     -- print("force transition")
     --handle new world and theme
     local condition = false
-    if (state.level == 4) then
+    if (state.level == 4 and not condition) then
         condition = true
         if state.theme == THEME.DWELLING then
             if jungle then
@@ -1401,7 +1401,7 @@ function forceTrans()
             state.level_next = 1
         end
     end
-    if (state.level==1 and (state.theme == THEME.OLMEC or state.theme == THEME.ICE_CAVES)) then
+    if (state.level==1 and (state.theme == THEME.OLMEC or state.theme == THEME.ICE_CAVES) and not condition) then
         condition = true
         if state.theme == THEME.OLMEC then
             if tidepool then
@@ -1417,7 +1417,7 @@ function forceTrans()
             state.level_next = 1
         end
     end
-    if (categoryType == "No TP Duat%" or categoryType == "Duat%") then
+    if (categoryType == "No TP Duat%" or categoryType == "Duat%") and not condition then
         condition = true
         if (state.level == 2 and state.theme == THEME.TEMPLE) then
             state.theme_next = THEME.CITY_OF_GOLD
@@ -1430,7 +1430,7 @@ function forceTrans()
             state.theme_next = state.theme
         end
     end
-    if (categoryType == "No TP Abzu%" or categoryType == "Abzu%") then
+    if (categoryType == "No TP Abzu%" or categoryType == "Abzu%") and not condition then
         condition = true
         if (state.level == 3 and state.theme == THEME.TIDE_POOL) then
             state.theme_next = THEME.ABZU
@@ -1440,7 +1440,7 @@ function forceTrans()
             state.theme_next = state.theme
         end
     end
-    if (state.level == 3 and state.theme == THEME.NEO_BABYLON) then
+    if (state.level == 3 and state.theme == THEME.NEO_BABYLON) and not condition then
         condition = true 
         state.theme_next = THEME.TIAMAT
         state.level_next = state.level + 1
