@@ -1,0 +1,3 @@
+PySide6
+python-socketio[client]
+requests
