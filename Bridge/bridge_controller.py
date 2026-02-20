@@ -7,6 +7,8 @@ signals. The controller owns the WSClient, UDPRelay, and session state.
 import logging
 import threading
 
+import requests
+
 from PySide6.QtCore import QObject, Signal, QTimer
 
 import api_client
@@ -294,6 +296,13 @@ class BridgeController(QObject):
                 try:
                     api_client.queue_join(steam_id)
                     log.info("Re-queue join succeeded for %s", steam_id)
+                except requests.HTTPError as e:
+                    if e.response is not None and e.response.status_code == 403:
+                        log.warning("Re-queue join rejected — player is banned: %s", steam_id)
+                        self.in_queue = False
+                        self.udp.send_to_game({"event": "is_banned"})
+                    else:
+                        log.error("Re-queue join failed: %s", e)
                 except Exception as e:
                     log.error("Re-queue join failed: %s", e)
             threading.Thread(target=_rejoin, daemon=True).start()
@@ -339,6 +348,12 @@ class BridgeController(QObject):
                 log.info("Queue join succeeded for %s", self.steam_id)
                 self.in_queue = True
                 self.queue_joined.emit()
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 403:
+                    log.warning("Queue join rejected — player is banned: %s", self.steam_id)
+                    self.udp.send_to_game({"event": "is_banned"})
+                else:
+                    log.error("Queue join failed: %s", e)
             except Exception as e:
                 log.error("Queue join failed: %s", e)
         threading.Thread(target=_do, daemon=True).start()

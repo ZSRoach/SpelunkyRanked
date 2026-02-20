@@ -907,6 +907,9 @@ function timedOps()
                 bridgeConnected = false
                 print("You have an outdated mod version. Please update!")
             -- Match found
+            elseif event == "is_banned" then
+                inQueue = false
+                queueStateText = "You are banned"
             elseif event == "paired" then
                 opponent = data.opponent_name
                 categories = data.categories
