@@ -1,6 +1,6 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.01',
+    version = '1.02',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -52,7 +52,7 @@ nonShopCategories = {
 }
 tpCategories = {
     "Any%",
-    "Sunken City",
+    "Sunken City%",
     "Duat%",
 }
 mattockCategories = {
@@ -62,7 +62,7 @@ mattockCategories = {
     "No TP Duat%",
 }
 bombCategories = {
-    "Sunken City",
+    "Sunken City%",
     "No TP Sunken City%",
     "No TP Eggplant%",
     "No TP Abzu%",
@@ -74,7 +74,7 @@ packCategories = {
     "No TP Duat%",
 }
 jetpackCategories = {
-    "Sunken City",
+    "Sunken City%",
     "No TP Sunken City%",
     "No TP Eggplant%",
     "No TP Abzu%",
@@ -444,10 +444,12 @@ end
 
 function blockInputs()
     set_journal_enabled(false)
+    blockingPause = true
+    if not players then return end
     if players[1] then
         get_player(1).input = nil
     end
-    blockingPause = true
+
 end
 
 function blockPause()
@@ -456,12 +458,11 @@ function blockPause()
 end
 
 function returnInputs()
-    if players[1] then
-        get_player(1).input = state.player_inputs.player_slot_1
-    end
     set_journal_enabled(true)
     blockingPause = false
     game_manager.pause_ui.prompt_visible = false
+    if not players then return end
+    get_player(1).input = state.player_inputs.player_slot_1
 end
 
 function renderTexture(render_ctx, texture, r, c, top, left, size)
@@ -1418,26 +1419,21 @@ function forceTrans()
         end
     end
     if (categoryType == "No TP Duat%" or categoryType == "Duat%") and not condition then
-        condition = true
         if (state.level == 2 and state.theme == THEME.TEMPLE) then
+            condition = true
             state.theme_next = THEME.CITY_OF_GOLD
             state.level_next = state.level + 1
         elseif (state.level == 3 and state.theme == THEME.CITY_OF_GOLD) then
+            condition = true
             state.theme_next = THEME.DUAT
             state.level_next = state.level + 1
-        else
-            state.level_next = state.level + 1
-            state.theme_next = state.theme
         end
     end
     if (categoryType == "No TP Abzu%" or categoryType == "Abzu%") and not condition then
-        condition = true
         if (state.level == 3 and state.theme == THEME.TIDE_POOL) then
+            condition = true
             state.theme_next = THEME.ABZU
             state.level_next = state.level + 1
-        else
-            state.level_next = state.level + 1
-            state.theme_next = state.theme
         end
     end
     if (state.level == 3 and state.theme == THEME.NEO_BABYLON) and not condition then
@@ -2371,6 +2367,7 @@ end
 function chatInputHandle()
     if not (matchStarted or banPhase or postMatch) then
         if chatting then
+            set_global_timeout(returnInputs, 10)
             returnInputs()
             chatting = false
             chatMessage = ""
@@ -2383,10 +2380,14 @@ function chatInputHandle()
         if inputs.key_press(inputs.KEYBOARD.RETURN) then
             if isCommand() then
                 doCommand(chatMessage)
+                set_global_timeout(returnInputs, 10)
+                returnInputs()
                 chatting = false
                 chatMessage = ""
                 return
             end
+            returnInputs()
+            set_global_timeout(returnInputs, 10)
             processChat(chatMessage, "You")
             sendChat()
             chatMessage = ""

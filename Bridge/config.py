@@ -4,7 +4,7 @@ import os
 import sys
 
 # Bridge version — must match server VERSION (float)
-BRIDGE_VERSION = 1.01
+BRIDGE_VERSION = 1.02
 
 # Server connection
 SERVER_URL = os.environ.get("SPEEDRUN_SERVER_URL", "http://140.82.40.6:5000")
