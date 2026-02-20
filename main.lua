@@ -2339,7 +2339,7 @@ end
 function addToMessage(char)
     if #chatMessage >= 50 then
         return
-    elseif inputs.key_down(inputs.KEYBOARD.SHIFT) then
+    elseif inputs.shift_down() then
         if char == "1" then
             char = "!"
             chatMessage = chatMessage..char
