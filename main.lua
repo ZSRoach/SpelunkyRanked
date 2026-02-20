@@ -1305,9 +1305,6 @@ function categoryHelper(ctx)
 end
 
 
-
-
-
 function determineCheckpoint()
     warpTo = {}
     loadAt = {}
@@ -1384,7 +1381,9 @@ function forceTrans()
     forceSeed()
     -- print("force transition")
     --handle new world and theme
+    local condition = false
     if (state.level == 4) then
+        condition = true
         if state.theme == THEME.DWELLING then
             if jungle then
                 state.theme_next = THEME.JUNGLE
@@ -1402,7 +1401,9 @@ function forceTrans()
             state.world_next = 5
             state.level_next = 1
         end
-    elseif (state.level==1 and (state.theme == THEME.OLMEC or state.theme == THEME.ICE_CAVES)) then
+    end
+    if (state.level==1 and (state.theme == THEME.OLMEC or state.theme == THEME.ICE_CAVES)) then
+        condition = true
         if state.theme == THEME.OLMEC then
             if tidepool then
                 state.theme_next = THEME.TIDE_POOL
@@ -1416,7 +1417,9 @@ function forceTrans()
             state.world_next = 6
             state.level_next = 1
         end
-    elseif (categoryType == "No TP Duat%" or categoryType == "Duat%") then
+    end
+    if (categoryType == "No TP Duat%" or categoryType == "Duat%") then
+        condition = true
         if (state.level == 2 and state.theme == THEME.TEMPLE) then
             state.theme_next = THEME.CITY_OF_GOLD
             state.level_next = state.level + 1
@@ -1427,7 +1430,9 @@ function forceTrans()
             state.level_next = state.level + 1
             state.theme_next = state.theme
         end
-    elseif (categoryType == "No TP Abzu%" or categoryType == "Abzu%") then
+    end
+    if (categoryType == "No TP Abzu%" or categoryType == "Abzu%") then
+        condition = true
         if (state.level == 3 and state.theme == THEME.TIDE_POOL) then
             state.theme_next = THEME.ABZU
             state.level_next = state.level + 1
@@ -1435,10 +1440,13 @@ function forceTrans()
             state.level_next = state.level + 1
             state.theme_next = state.theme
         end
-    elseif (state.level == 3 and state.theme == THEME.NEO_BABYLON) then 
+    end
+    if (state.level == 3 and state.theme == THEME.NEO_BABYLON) then
+        condition = true 
         state.theme_next = THEME.TIAMAT
         state.level_next = state.level + 1
-    else
+    end
+    if not condition then
         -- print("default")
         state.level_next = state.level + 1
         state.theme_next = state.theme
@@ -1609,6 +1617,7 @@ function loadInventory()
     state.items.player_inventory[1].kills_total = inventory.kills
     state.items.player_inventory[1].kapala_blood_amount = inventory.kapala
     state.items.player_inventory[1].companion_count = companionInfo.count
+    state.items.player_inventory[1].collected_money_total = inventory.moneyCollected
 
     --companions
     for i = 1, companionInfo.count do
@@ -1787,9 +1796,9 @@ function inLevelRequirements() --checks for category violations and requirements
     if not matchStarted then return end
     if warping then return end
     if state.screen ~= SCREEN.LEVEL then return end
-    if state.items.players[1].health == 0 then return end
     if not players then return end
     if not players[1] then return end
+    if state.items.players[1].health == 0 then return end
     local violated = false
     --violations
     --low%
