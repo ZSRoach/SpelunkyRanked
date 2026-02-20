@@ -23,13 +23,16 @@ S2Ranked requires explicit firewall permissions to communicate with the game. Th
 
 > ⚠️ Batch files can run commands directly on your system. You are strongly encouraged to verify the file does exactly what is described below and nothing more.
 
-Here's what `setup.bat` does, step by step:
+Here's what `setup.bat` does:
 
 1. **Verifies administrator access** — required to modify the Windows Advanced Security Firewall.
 2. **Accesses the Windows Firewall** via the Network Shell (`netsh advfirewall firewall`).
-3. **Adds a new firewall rule** — names it, sets the direction to accept incoming messages, and sets the status to allow.
-4. **Identifies the target program** — `S2Ranked.exe` in the same directory.
-5. **Enables the rule** for both UDP and TCP protocols.
+3. **Removes existing firewall rules relating to S2Ranked** — gets rid of any blocks which Windows has placed on the app, and removes old rules from prior installations of the app
+4. **Adds a new firewall rule** — names it, sets the direction to accept incoming messages, and sets the status to allow.
+5. **Identifies the target program** — `S2Ranked.exe` in the same directory.
+6. **Enables the rule** for both UDP and TCP protocols.
+
+I encourage you to confirm yourself that this file does **only what it is intended to do and nothing else.** The file also contains comments explaining each command, to make it easier to understand.
 
 S2Ranked uses **UDP** to communicate with the game and **TCP** to communicate with the Ranked Server. This permission is required to play — without it, connections will be blocked by Windows.
 My knowledge of these processes is quite fresh, so I'll look into a cleaner more trustworthy approach in the future, but for now, exercise caution and proper cyber safety.
@@ -42,7 +45,7 @@ Unsafe Mode is required because Modlunky blocks UDP Server functions without it,
 
 ### Login
 
-S2Ranked uses **Steam OpenID** to log in and register players. Steam does not send any sensitive information to the ranked server — only your publicly available Steam ID is passed.
+S2Ranked uses **Steam OpenID** to log in and register players. Steam does not send any sensitive information to the ranked server — only your publicly available Steam ID is passed. All information that Steam provides is outlined on the Steam OpenID page.
 
 ---
 
@@ -50,7 +53,7 @@ S2Ranked uses **Steam OpenID** to log in and register players. Steam does not se
 
 ### 1. Queue for a Match
 
-Interact with the sign in the Camp and press the queue button. You're free to walk around while waiting for a match to be found. **S2Ranked must be open!** 
+Interact with the sign in the Camp and press the queue button. You're free to walk around, or play a run while waiting for a match to be found. **S2Ranked must be open!** 
 The server will attempt to pair players together based off of rank proximity and time spent in queue. The longer a player queues, the further their possible queue range is expanded. This may lead to unfair matches, but may also be better for queue times. This process also subject to change in future updates.
 
 ### 2. Category Ban Process
@@ -119,4 +122,4 @@ Finished match data is saved to the server, and is visible in the S2Ranked app. 
 | Cosmic | 1,600+ |
 
 ## Download and Install Process
-Download and install [Modlunky](https://github.com/spelunky-fyi/modlunky2/releases). Then download `S2Ranked.zip` and `Spelunky Ranked.zip` from the releases page. Place the files from `Spelunky Ranked.zip` into the `/Spelunky 2/Mods/Packs/Spelunky Ranked/` folder. You can place the `S2Ranked.zip` files anywhere you'd like, really, but I recommend `/Spelunky 2/S2Ranked/` for ease of access. Then launch Modlunky, and enable the mod from the Playlunky tab. I recommend using the Playlunky save as to not affect your existing player profile. I'm not actually sure what speedrun mode does, but keep it off I guess. Launch the game and `S2Ranked.exe`, and happy queueing!
+Download and install [Modlunky](https://github.com/spelunky-fyi/modlunky2/releases). Then download `S2Ranked.zip` and `Spelunky Ranked.zip` from the releases page. Place the files from `Spelunky Ranked.zip` into the `/Spelunky 2/Mods/Packs/Spelunky Ranked/` folder. You can place the `S2Ranked.zip` files anywhere you'd like, really, but I recommend `/Spelunky 2/S2Ranked/` for ease of access. In `/S2Ranked/`, run `setup.bat` as an administrator, and then launch S2Ranked.exe. Once you login, **close the app, and relaunch.** The connection between the game and the app doesn't seem to take before the second launch of the app. Then launch Modlunky, and enable the mod from the Playlunky tab. I recommend using the Playlunky save as to not affect your existing player profile. **Also if your playlunky save is fresh, you may want to copy your normal save and use that as the playlunky save too. Just rename a copy to `savegame.sav.pl`**. I'm not actually sure what speedrun mode does, but keep it off I guess. Launch the game and `S2Ranked.exe`, and happy queueing!
