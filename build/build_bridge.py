@@ -63,6 +63,9 @@ def build_bridge():
         "--hidden-import", "engineio",
         "--hidden-import", "engineio.async_drivers.threading",
         "--hidden-import", "websocket",
+        "--hidden-import", "win32crypt",
+        "--hidden-import", "win32api",
+        "--hidden-import", "pywintypes",
         os.path.join(bridge_dir, "app.py"),
     ]
 

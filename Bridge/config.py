@@ -4,11 +4,11 @@ import os
 import sys
 
 # Bridge version — must match server VERSION (float)
-BRIDGE_VERSION = 1.02
+BRIDGE_VERSION = 1.03
 
 # Server connection
-SERVER_URL = os.environ.get("SPEEDRUN_SERVER_URL", "http://140.82.40.6:5000")
-WS_URL = os.environ.get("SPEEDRUN_WS_URL", "http://140.82.40.6:5000")
+SERVER_URL = os.environ.get("SPEEDRUN_SERVER_URL", "https://spelunkyranked.duckdns.org")
+WS_URL = os.environ.get("SPEEDRUN_WS_URL", "https://spelunkyranked.duckdns.org")
 WS_NAMESPACE = "/ws/match"
 
 # UDP — both sides listen on known ports

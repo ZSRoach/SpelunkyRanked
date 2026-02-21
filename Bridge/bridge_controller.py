@@ -26,6 +26,7 @@ class BridgeController(QObject):
     # ---- Session signals ----
     login_success = Signal(dict)    # player data
     login_failed = Signal(str)      # error message
+    login_banned = Signal()         # steam id is permanently banned
     registration_needed = Signal(str)  # steam_id (new player, needs a name)
     registration_failed = Signal(str)  # error message from server (name taken, blocked, etc.)
     player_data_refreshed = Signal(dict)  # updated player data
@@ -134,7 +135,7 @@ class BridgeController(QObject):
                 self._server_version = version_info.get("version", 0.0)
                 self._game_mod_download_url = version_info.get("game_mod_download_url", "")
                 bridge_download_url = version_info.get("bridge_download_url", "")
-                log.info("Server version=%.1f bridge_version=%.1f", self._server_version, BRIDGE_VERSION)
+                log.info("Server version=%.2f bridge_version=%.2f", self._server_version, BRIDGE_VERSION)
 
                 if BRIDGE_VERSION != self._server_version:
                     log.warning("Bridge version mismatch — emitting bridge_version_mismatch")
@@ -152,6 +153,13 @@ class BridgeController(QObject):
                     self.player_name = data.get("player_name", "")
                     self.player_data = data
                     self.login_success.emit(data)
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 403:
+                    log.warning("Login blocked — steam_id is banned: %s", steam_id)
+                    self.login_banned.emit()
+                else:
+                    log.error("Login failed: %s", e)
+                    self.login_failed.emit(str(e))
             except Exception as e:
                 log.error("Login failed: %s", e)
                 self.login_failed.emit(str(e))
@@ -331,7 +339,7 @@ class BridgeController(QObject):
 
     def _on_game_version_received(self, game_version: float) -> None:
         """Check the game mod version against the server version."""
-        log.info("Game version=%.1f server_version=%.1f", game_version, self._server_version)
+        log.info("Game version=%.2f server_version=%.2f", game_version, self._server_version)
         if game_version != self._server_version:
             log.warning("Game mod version mismatch")
             self.udp.send_to_game({"event": "version_mismatch"})

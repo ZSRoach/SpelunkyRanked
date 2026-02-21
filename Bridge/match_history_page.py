@@ -282,8 +282,7 @@ class MatchHistoryPage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if not self._matches:
-            self.refresh()
+        self.refresh()
 
     def refresh(self):
         self._offset = 0

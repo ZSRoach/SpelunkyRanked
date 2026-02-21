@@ -1,6 +1,6 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.02',
+    version = '1.03',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,

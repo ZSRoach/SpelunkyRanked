@@ -35,6 +35,8 @@ class LoginPage(QWidget):
         self._controller.bridge_version_mismatch.connect(self._show_version_mismatch)
         # On login failure, reset to normal login state
         self._controller.login_failed.connect(self._on_login_failed)
+        # Steam ID is permanently banned
+        self._controller.login_banned.connect(self._on_login_banned)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -105,6 +107,11 @@ class LoginPage(QWidget):
 
     def try_auto_login(self):
         """Attempt to log in with a cached steam_id. Call once after UI is ready."""
+        if settings_store.is_steam_id_tampered():
+            settings_store.clear_steam_id()
+            self._status_label.setText("Saved login was modified externally and has been cleared. Please log in again.")
+            return
+
         cached = settings_store.get_steam_id()
         if cached:
             self._steam_id = cached
@@ -128,6 +135,13 @@ class LoginPage(QWidget):
         self._login_btn.show()
         self._login_btn.setEnabled(True)
         self._status_label.setText(f"Login failed: {msg}")
+        self._status_label.setStyleSheet("color: #ff6666; font-size: 22px; font-weight: bold;")
+
+    def _on_login_banned(self):
+        """Steam ID is permanently banned — show message, do not restore login button."""
+        self._login_btn.hide()
+        self._name_section.hide()
+        self._status_label.setText("Your account has been banned.")
         self._status_label.setStyleSheet("color: #ff6666; font-size: 22px; font-weight: bold;")
 
     def _start_steam_auth(self):
