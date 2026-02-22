@@ -2518,6 +2518,7 @@ function chatInputHandle()
             end, 2)
             chatting = false
             chatMessage = ""
+            returnInputs()
             return
         end
         if input.keypressed(KEY.BACKSPACE) then
