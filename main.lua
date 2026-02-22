@@ -292,6 +292,9 @@ matchResultReceived = false
 result = nil
 banPhase = false
 reportCount = 0
+banInputDelay = 0
+blockingInputs = false
+returningInputs = false
 
 categoryType = nil
 seed = 0xAAAAAAAAAAAAAAAA
@@ -332,16 +335,22 @@ tidepool = true
 
 
 -- camp variables
-blockingPause = false
 signOpen = false
 inQueue = false
 buttonIndex = 0
 banButtonIndex = 0
 queueStateText = "Not in queue"
 callbackList = {}
+scrapCallbackList = {}
+completionCallback = 0
 
 --sets variable values to defaults when camp loaded first time - used post match
 function defaultValues()
+    completionCallback = 0
+    scrapCallbackList = {}
+    blockingInputs = false
+    returningInputs = false
+    banInputDelay = 0
     preMatch = false
     callbackList = {}
     postMatch = false
@@ -366,7 +375,6 @@ function defaultValues()
     opponent = "name"
     categories = {}
     bansFirst = false
-    blockingPause = false
     matchStarted = false
     matchResultReceived = false
     categoryType = nil
@@ -443,26 +451,37 @@ function spawnSign()
 end
 
 function blockInputs()
-    set_journal_enabled(false)
-    blockingPause = true
-    if not players then return end
-    if players[1] then
+    blockingInputs = true
+    returningInputs = false
+end
+
+function inputCheck()
+    --keep retrying player input blocking
+    if blockingInputs then
+        set_journal_enabled(false)
+        if not players then return end
+        if not players[1] then return end
         get_player(1).input = nil
+        blockingInputs = false
+    -- keep retrying player input returning
+    elseif returningInputs then
+        set_journal_enabled(true)
+        game_manager.pause_ui.prompt_visible = false
+        if not players then return end
+        if not players[1] then return end
+        get_player(1).input = state.player_inputs.player_slot_1
+        returningInputs = false
     end
-
 end
 
-function blockPause()
-    if not blockingPause then return end
-    if game_manager.pause_ui.visibility ~=0 then game_manager.pause_ui.visibility = 0 end
-end
+-- function blockPause()
+--     if not blockingPause then return end
+--     if game_manager.pause_ui.visibility ~=0 then game_manager.pause_ui.visibility = 0 end
+-- end
 
 function returnInputs()
-    set_journal_enabled(true)
-    blockingPause = false
-    game_manager.pause_ui.prompt_visible = false
-    if not players then return end
-    get_player(1).input = state.player_inputs.player_slot_1
+    returningInputs = true
+    blockingInputs = false
 end
 
 function renderTexture(render_ctx, texture, r, c, top, left, size)
@@ -772,7 +791,14 @@ function banWindowInput()
     if banButtonIndex == -1 then
         banButtonIndex = validButtons[1]
     end
-    if chatting then return end
+    if chatting then 
+        banInputDelay = 10 
+        return
+    end
+    if banInputDelay > 0 then
+        banInputDelay = banInputDelay - 1
+        return
+    end
     --controller path
     local index = -1
     for ind, butind in ipairs(validButtons) do
@@ -916,11 +942,18 @@ function timedOps()
                 inQueue = false
                 preMatch = true
                 banTime()
+                local id = set_global_interval(function()
+                    play_sound(VANILLA_SOUND.DEATHMATCH_DM_TIMER, -1)
+                end, 60)
                 -- 10 second window for match found message
-                set_global_timeout(function()
+                local id2 = set_global_timeout(function()
                     preMatch = false
                     prepBans()
-                end,600)
+                    clear_callback(id)
+                    play_sound(VANILLA_SOUND.MENU_CHARSEL_SELECTION2, -1)
+                end,599)
+                table.insert(scrapCallbackList,id)
+                table.insert(scrapCallbackList,id2)
             -- Ban Phase 
             elseif event == "ban_update" then
                 remainingCategories = data.categories
@@ -954,6 +987,8 @@ function timedOps()
                     processChat(opponent.." entered Ice Caves.", "Match Info")
                 elseif opponentArea == THEME.NEO_BABYLON then
                     processChat(opponent.." entered Neo Babylon.", "Match Info")
+                elseif opponentArea == THEME.SUNKEN_CITY then
+                    processChat(opponent.." entered Sunken City.", "Match Info")
                 end
             
             elseif event == "receive_seed_change_request" then
@@ -982,6 +1017,7 @@ function timedOps()
                     set_global_timeout(function()
                         clear_callback(id)
                     end, 360)
+                    table.insert(scrapCallbackList,id)
                 end
                 server:send(json.encode({ event = "ack", ack_event = "do_seed_change" }), bridgeAddress)
 
@@ -991,12 +1027,18 @@ function timedOps()
                     matchResultReceived = true
                     result = data.result
                     eloChange = data.elo_change
+                    if completionCallback ~= 0 then
+                        clear_callback(completionCallback) 
+                    end
                     endMatch()
                 end
                 server:send(json.encode({ event = "ack", ack_event = "match_result"}), bridgeAddress)
 
             elseif event == "match_scrapped" then
                 print("This match has been scrapped! No Elo was lost.")
+                for i, id in ipairs(scrapCallbackList) do
+                    clear_callback(id)
+                end
                 defaultValues()
                 warp(1,1,THEME.BASE_CAMP)
             elseif event == "postmatch_closed" then
@@ -1741,9 +1783,6 @@ function gameframeHandle()
 end
 
 function guiframeHandle()
-    if not matchStarted then
-        blockPause()
-    end
     if matchStarted then
         if banPhase then
             blockInputs()
@@ -1763,6 +1802,7 @@ function guiframeHandle()
         warpToCheckpoint()
     end
     chatInputHandle()
+    inputCheck()
 end
 
 function categoryViolation()
@@ -1976,12 +2016,12 @@ function postLevelRequirements() --checks for category violations and requiremen
             --going temple
             if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TEMPLE) then
                 violated = true
-                print("shouldve gone temple violation")
+                log_print("shouldve gone temple violation")
             end
             --going jungle
             if ((state.world == 1 and state.level == 4) and state.theme_next ~= THEME.JUNGLE) then
                 violated = true
-                print("shouldve gone jungle violation")
+                log_print("shouldve gone jungle violation")
             end
         end
     end
@@ -1999,6 +2039,18 @@ function postLevelRequirements() --checks for category violations and requiremen
                 if not child then
                     violated = true
                     log_print("no child violation")
+                end
+            end
+            if state.world == 7 and state.level == 2 then
+                local hasCrown = false
+                for i, ent in ipairs(inventory.acquired_powerups) do
+                    if ent == ENT_TYPE.ITEM_POWERUP_EGGPLANTCROWN then
+                        hasCrown = true
+                    end
+                end
+                if not hasCrown then
+                    violated = true
+                    log_print("no eggplant crown violation")
                 end
             end
         end
@@ -2047,7 +2099,7 @@ end
 
 function testWin()
     if matchStarted and state.screen == SCREEN.WIN then
-        completionReport()
+        completionCallback = set_global_interval(completionReport,60)
     end
 end
 
@@ -2294,7 +2346,7 @@ function renderResults(render_ctx)
         table.insert(lines, "error")
     end
     for i, line in ipairs(lines) do
-        renderText(render_ctx, line, 0, ratio*(.12-(i*.08)),(.003)-(i*.001),white)
+        renderText(render_ctx, line, 0, ratio*(.13-((i*.08)-((i-1)*.025))),(.0020)-(i*.0004),white)
     end
 end
 
@@ -2332,15 +2384,69 @@ function processChat(message, sender)
     messageList = list
 end
 
-function addToMessage(char)
+function addToMessage(char, shift)
     if #chatMessage >= 50 then
         return
-    elseif inputs.shift_down() then
+    elseif shift then
         if char == "1" then
             char = "!"
             chatMessage = chatMessage..char
         elseif char == "/" then
             char = "?"
+            chatMessage = chatMessage..char
+        elseif char == "2" then
+            char = "@"
+            chatMessage = chatMessage..char
+        elseif char == "3" then
+            char = "#"
+            chatMessage = chatMessage..char
+        elseif char == "4" then
+            char = "$"
+            chatMessage = chatMessage..char
+        elseif char == "5" then
+            char = "%"
+            chatMessage = chatMessage..char
+        elseif char == "6" then
+            char = "^"
+            chatMessage = chatMessage..char
+        elseif char == "7" then
+            char = "&"
+            chatMessage = chatMessage..char
+        elseif char == "8" then
+            char = "*"
+            chatMessage = chatMessage..char
+        elseif char == "9" then
+            char = "("
+            chatMessage = chatMessage..char
+        elseif char == "0" then
+            char = ")"
+            chatMessage = chatMessage..char
+        elseif char == "," then
+            char = "<"
+            chatMessage = chatMessage..char
+        elseif char == "." then
+            char = ">"
+            chatMessage = chatMessage..char
+        elseif char == "'" then
+            char = "\""
+            chatMessage = chatMessage..char
+        elseif char == ";" then
+            char = ":"
+            chatMessage = chatMessage..char
+        elseif char == "[" then
+            char = "{"
+            chatMessage = chatMessage..char
+        elseif char == "]" then
+            char = "}"
+            chatMessage = chatMessage..char
+        elseif char == "`" then
+            char = "~"
+            chatMessage = chatMessage..char
+        elseif char == "=" then
+            char = "+"
+            chatMessage = chatMessage..char
+        elseif char == "-" then
+            char = "_"
             chatMessage = chatMessage..char
         else
             chatMessage = chatMessage..string.upper(char)
@@ -2351,180 +2457,215 @@ function addToMessage(char)
 end
 
 function isCommand()
-    if chatMessage == "/end" then
+    if chatMessage == "/end" or chatMessage == "/cat" then
         return true
     end
 end
 
 function doCommand(command)
-    returnInputs()
     if command == "/end" and postMatch then
         forceEndPostMatch()
         closePostMatch()
+    end
+    if command == "/cat" and matchStarted then
+        processChat("Current category is "..categoryType, "Match Info")
     end
 end
 
 function chatInputHandle()
     if not (matchStarted or banPhase or postMatch) then
         if chatting then
-            set_global_timeout(returnInputs, 10)
             returnInputs()
             chatting = false
             chatMessage = ""
         end
         return
     end
+    local input = get_io()
+    local shift = false
     --chat window already open
+    if input.keydown(KEY.LSHIFT) or input.keydown(KEY.RSHIFT) then
+        shift = true
+    else 
+        shift = false
+    end
     if chatting then 
+        input.wantkeyboard = true
         blockInputs()
-        if inputs.key_press(inputs.KEYBOARD.RETURN) then
+        if input.keypressed(KEY.RETURN) then
             if isCommand() then
                 doCommand(chatMessage)
-                set_global_timeout(returnInputs, 10)
                 returnInputs()
                 chatting = false
                 chatMessage = ""
                 return
             end
+            if chatMessage == "" then
+                chatting = false
+                chatMessage = ""
+                returnInputs()
+                return
+            end
             returnInputs()
-            set_global_timeout(returnInputs, 10)
             processChat(chatMessage, "You")
             sendChat()
             chatMessage = ""
             chatting = false
         end
-        if inputs.key_press(inputs.KEYBOARD.ESC) then
+        if input.keypressed(27) or input.keypressed(KEY.OL_MOD_SHIFT | 27) then
+            set_global_timeout(function()
+                if game_manager.pause_ui.visibility ~=0 then game_manager.pause_ui.visibility = 0 end
+            end, 2)
             chatting = false
             chatMessage = ""
+            return
         end
-        if inputs.key_press(inputs.KEYBOARD.BACKSPACE) then
+        if input.keypressed(KEY.BACKSPACE) then
             chatMessage = string.sub(chatMessage, 1, -2)
         end
-        if inputs.key_press(inputs.KEYBOARD.SPACE) then
-            addToMessage(" ")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.A) or input.keypressed(KEY.A) then
+            addToMessage("a",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.A) then
-            addToMessage("a")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.B) or input.keypressed(KEY.B) then
+            addToMessage("b",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.B) then
-            addToMessage("b")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.C) or input.keypressed(KEY.C) then
+            addToMessage("c",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.C) then
-            addToMessage("c")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.D) or input.keypressed(KEY.D) then
+            addToMessage("d",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.D) then
-            addToMessage("d")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.E) or input.keypressed(KEY.E) then
+            addToMessage("e",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.E) then
-            addToMessage("e")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.F) or input.keypressed(KEY.F) then
+            addToMessage("f",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.F) then
-            addToMessage("f")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.G) or input.keypressed(KEY.G) then
+            addToMessage("g",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.G) then
-            addToMessage("g")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.H) or input.keypressed(KEY.H) then
+            addToMessage("h",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.H) then
-            addToMessage("h")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.I) or input.keypressed(KEY.I) then
+            addToMessage("i",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.I) then
-            addToMessage("i")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.J) or input.keypressed(KEY.J) then
+            addToMessage("j",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.J) then
-            addToMessage("j")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.K) or input.keypressed(KEY.K) then
+            addToMessage("k",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.K) then
-            addToMessage("k")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.L) or input.keypressed(KEY.L) then
+            addToMessage("l",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.L) then
-            addToMessage("l")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.M) or input.keypressed(KEY.M) then
+            addToMessage("m",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.M) then
-            addToMessage("m")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.N) or input.keypressed(KEY.N) then
+            addToMessage("n",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.N) then
-            addToMessage("n")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.O) or input.keypressed(KEY.O) then
+            addToMessage("o",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.O) then
-            addToMessage("o")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.P) or input.keypressed(KEY.P) then
+            addToMessage("p",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.P) then
-            addToMessage("p")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.Q) or input.keypressed(KEY.Q) then
+            addToMessage("q",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.Q) then
-            addToMessage("q")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.R) or input.keypressed(KEY.R) then
+            addToMessage("r",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.R) then
-            addToMessage("r")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.S) or input.keypressed(KEY.S) then
+            addToMessage("s",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.S) then
-            addToMessage("s")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.T) or input.keypressed(KEY.T) then
+            addToMessage("t",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.T) then
-            addToMessage("t")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.U) or input.keypressed(KEY.U) then
+            addToMessage("u",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.U) then
-            addToMessage("u")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.V) or input.keypressed(KEY.V) then
+            addToMessage("v",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.V) then
-            addToMessage("v")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.W) or input.keypressed(KEY.W) then
+            addToMessage("w",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.W) then
-            addToMessage("w")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.X) or input.keypressed(KEY.X) then
+            addToMessage("x",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.X) then
-            addToMessage("x")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.Y) or input.keypressed(KEY.Y) then
+            addToMessage("y",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.Y) then
-            addToMessage("y")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.Z) or input.keypressed(KEY.Z) then
+            addToMessage("z",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.Z) then
-            addToMessage("z")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 48) or input.keypressed(48) then
+            addToMessage("0",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_0) then
-            addToMessage("0")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 49) or input.keypressed(49) then
+            addToMessage("1",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_1) then
-            addToMessage("1")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 50) or input.keypressed(50) then
+            addToMessage("2",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_2) then
-            addToMessage("2")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 51) or input.keypressed(51) then
+            addToMessage("3",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_3) then
-            addToMessage("3")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 52) or input.keypressed(52) then
+            addToMessage("4",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_4) then
-            addToMessage("4")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 53) or input.keypressed(53) then
+            addToMessage("5",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_5) then
-            addToMessage("5")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 54) or input.keypressed(54) then
+            addToMessage("6",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_6) then
-            addToMessage("6")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 55) or input.keypressed(55) then
+            addToMessage("7",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_7) then
-            addToMessage("7")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 56) or input.keypressed(56) then
+            addToMessage("8",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_8) then
-            addToMessage("8")
+        if input.keypressed(KEY.OL_MOD_SHIFT | 57) or input.keypressed(57) then
+            addToMessage("9",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.NUM_9) then
-            addToMessage("9")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.COMMA) or input.keypressed(KEY.COMMA) then
+            addToMessage(",",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.COMMA) then
-            addToMessage(",")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.PERIOD) or input.keypressed(KEY.PERIOD) then
+            addToMessage(".",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.PERIOD) then
-            addToMessage(".")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.OEM_2) or input.keypressed(KEY.OEM_2) then
+            addToMessage("/",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.FORWARD_SLASH) then
-            addToMessage("/")
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.OEM_7) or input.keypressed(KEY.OEM_7) then
+            addToMessage("'",shift)
         end
-        if inputs.key_press(inputs.KEYBOARD.QUOTE) then
-            addToMessage('"')
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.OEM_1) or input.keypressed(KEY.OEM_1) then
+            addToMessage(";",shift)
+        end
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.MINUS) or input.keypressed(KEY.MINUS) then
+            addToMessage("-",shift)
+        end
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.PLUS) or input.keypressed(KEY.PLUS) then
+            addToMessage("=",shift)
+        end
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.OEM_4) or input.keypressed(KEY.OEM_4) then
+            addToMessage("[",shift)
+        end
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.OEM_6) or input.keypressed(KEY.OEM_6) then
+            addToMessage("]",shift)
+        end
+        if input.keypressed(KEY.OL_MOD_SHIFT | KEY.OEM_3) or input.keypressed(KEY.OEM_3) then
+            addToMessage("`",shift)
+        end
+        if input.keypressed(KEY.OL_MOD_SHIFT | 32) or input.keypressed(32) then
+            addToMessage(" ",shift)
         end
     else
-        if inputs.key_press(inputs.KEYBOARD.FORWARD_SLASH) then
+        if input.keypressed(KEY.OEM_2) then
             chatting = true
             chatMessage = ""
         end
