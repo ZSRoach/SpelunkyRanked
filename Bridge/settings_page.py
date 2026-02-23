@@ -15,13 +15,14 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal
 
 import settings_store
-from config import CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_TEXT, CLR_TEXT_BRIGHT
+from config import CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_ACTIVE_BTN
 
 
 class SettingsPage(QWidget):
     """Settings page — overlay background color and logout."""
 
     logout_requested = Signal()
+    overlay_always_on_top_changed = Signal(bool)
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -67,6 +68,30 @@ class SettingsPage(QWidget):
 
         layout.addWidget(color_frame)
 
+        # Always on top setting
+        aot_frame = QFrame()
+        aot_frame.setStyleSheet(
+            f"QFrame {{ background-color: {CLR_WIDGET_BG}; border-radius: 8px; padding: 16px; }}"
+        )
+        aot_layout = QHBoxLayout(aot_frame)
+
+        aot_label = QLabel("Overlay Always on Top")
+        aot_label.setStyleSheet(f"color: {CLR_TEXT_BRIGHT}; font-size: 22px; font-weight: bold;")
+        aot_layout.addWidget(aot_label)
+
+        aot_layout.addStretch()
+
+        self._aot_btn = QPushButton("On")
+        self._aot_btn.setCheckable(True)
+        self._aot_btn.setFixedHeight(40)
+        self._aot_btn.setFixedWidth(80)
+        self._aot_btn.setChecked(settings_store.get_overlay_always_on_top())
+        self._aot_btn.clicked.connect(self._on_aot_toggled)
+        self._update_aot_style()
+        aot_layout.addWidget(self._aot_btn)
+
+        layout.addWidget(aot_frame)
+
         layout.addStretch()
 
         # Logout button
@@ -100,6 +125,26 @@ class SettingsPage(QWidget):
             settings_store.set_overlay_color(hex_color)
             self._set_preview_color(hex_color)
 
+    def _on_aot_toggled(self, checked: bool):
+        self._update_aot_style()
+        settings_store.set_overlay_always_on_top(checked)
+        self.overlay_always_on_top_changed.emit(checked)
+
+    def _update_aot_style(self):
+        checked = self._aot_btn.isChecked()
+        self._aot_btn.setText("On" if checked else "Off")
+        if checked:
+            self._aot_btn.setStyleSheet(
+                f"QPushButton {{ background-color: {CLR_ACTIVE_BTN}; color: white; "
+                f"border-radius: 4px; font-size: 19px; font-weight: bold; }}"
+            )
+        else:
+            self._aot_btn.setStyleSheet(
+                f"QPushButton {{ background-color: {CLR_BUTTON_BG}; color: {CLR_TEXT}; "
+                f"border-radius: 4px; font-size: 19px; font-weight: bold; }}"
+                f"QPushButton:hover {{ background-color: #3e4278; }}"
+            )
+
     def _on_logout(self):
-        settings_store.clear_steam_id()
+        settings_store.clear_login_creds()
         self.logout_requested.emit()

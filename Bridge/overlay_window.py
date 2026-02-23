@@ -22,11 +22,10 @@ class OverlayWindow(QWidget):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self._controller = controller
-        self.setWindowFlags(
-            Qt.Window
-            | Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
-        )
+        flags = Qt.Window | Qt.FramelessWindowHint
+        if settings_store.get_overlay_always_on_top():
+            flags |= Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
         self.setMinimumSize(200, 80)
         self.resize(400, 140)
@@ -36,6 +35,7 @@ class OverlayWindow(QWidget):
         self._drag_pos = None
         self._resizing = False
         self._resize_edge = None
+        self._updating_fonts = False
 
         self._setup_ui()
 
@@ -44,6 +44,7 @@ class OverlayWindow(QWidget):
         self._controller.match_started.connect(self._on_match_start)
         self._controller.match_result.connect(lambda _: self._reset())
         self._controller.match_scrapped.connect(self._reset)
+        self._controller.seed_changed.connect(self._on_seed_changed)
 
     def _setup_ui(self):
         self._root = QVBoxLayout(self)
@@ -96,8 +97,17 @@ class OverlayWindow(QWidget):
         super().resizeEvent(event)
         self._update_font_sizes()
 
-    def _update_font_sizes(self):
+    def _update_font_sizes(self, *args):
         """Scale fonts to fill the window without cutting off text."""
+        if self._updating_fonts:
+            return
+        self._updating_fonts = True
+        try:
+            self._do_update_font_sizes()
+        finally:
+            self._updating_fonts = False
+
+    def _do_update_font_sizes(self):
         # Available space
         width = self.width() - 24  # margins
         height = self.height() - 16  # margins
@@ -154,6 +164,14 @@ class OverlayWindow(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._apply_bg_color()
+        # Connect screen-change signal for multi-monitor DPI support
+        handle = self.windowHandle()
+        if handle:
+            try:
+                handle.screenChanged.disconnect(self._update_font_sizes)
+            except RuntimeError:
+                pass
+            handle.screenChanged.connect(self._update_font_sizes)
         # Populate with current match data or show preview placeholders
         if self._controller.in_match:
             opponent = self._controller.match_opponent
@@ -174,9 +192,22 @@ class OverlayWindow(QWidget):
                 pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
 
+    def set_always_on_top(self, enabled: bool) -> None:
+        visible = self.isVisible()
+        flags = Qt.Window | Qt.FramelessWindowHint
+        if enabled:
+            flags |= Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        if visible:
+            self.show()
+
     def _apply_bg_color(self):
         color = settings_store.get_overlay_color()
         self.setStyleSheet(f"OverlayWindow {{ background-color: {color}; }}")
+
+    def _on_seed_changed(self):
+        self._progress_label.setText("Started Match")
+        self._update_font_sizes()
 
     def _on_match_start(self, data: dict):
         opponent = self._controller.match_opponent

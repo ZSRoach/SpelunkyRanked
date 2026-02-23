@@ -25,6 +25,8 @@ class LoginPage(QWidget):
         super().__init__(parent)
         self._controller = controller
         self._steam_id = ""
+        self._token = ""
+        self._ts = 0
         self._setup_ui()
 
         # When the server says this is a new player, show the name prompt
@@ -103,26 +105,33 @@ class LoginPage(QWidget):
         self._status_label = QLabel("")
         self._status_label.setStyleSheet("color: #ff6666; font-size: 22px; font-weight: bold;")
         self._status_label.setAlignment(Qt.AlignCenter)
+        self._status_label.setWordWrap(True)
+        self._status_label.setMaximumWidth(500)
         layout.addWidget(self._status_label)
 
     def try_auto_login(self):
-        """Attempt to log in with a cached steam_id. Call once after UI is ready."""
-        if settings_store.is_steam_id_tampered():
-            settings_store.clear_steam_id()
+        """Attempt to log in with cached credentials. Call once after UI is ready."""
+        if settings_store.is_creds_tampered():
+            settings_store.clear_login_creds()
             self._status_label.setText("Saved login was modified externally and has been cleared. Please log in again.")
             return
 
-        cached = settings_store.get_steam_id()
-        if cached:
-            self._steam_id = cached
+        creds = settings_store.get_login_creds()
+        if creds:
+            steam_id, token, ts = creds
+            self._steam_id = steam_id
+            self._token = token
+            self._ts = ts
             self._login_btn.setEnabled(False)
             self._status_label.setText("Logging in...")
             self._status_label.setStyleSheet("color: #66ff66; font-size: 22px; font-weight: bold;")
-            self._controller.login(cached)
+            self._controller.login(steam_id, token, ts)
 
     def reset(self):
         """Reset to the default login page state (used by logout)."""
         self._steam_id = ""
+        self._token = ""
+        self._ts = 0
         self._login_btn.show()
         self._login_btn.setEnabled(True)
         self._name_section.hide()
@@ -153,7 +162,7 @@ class LoginPage(QWidget):
         self._auth_worker.finished.connect(self._on_steam_auth_done)
         threading.Thread(target=self._auth_worker.run, daemon=True).start()
 
-    def _on_steam_auth_done(self, steam_id: str):
+    def _on_steam_auth_done(self, steam_id: str, token: str, ts: int):
         self._login_btn.setEnabled(True)
         # Bring app window back to front after browser auth
         window = self.window()
@@ -161,12 +170,14 @@ class LoginPage(QWidget):
             window.showMinimized()
             window.showNormal()
             window.activateWindow()
-        if steam_id:
+        if steam_id and token:
             self._steam_id = steam_id
-            settings_store.set_steam_id(steam_id)
+            self._token = token
+            self._ts = ts
+            settings_store.set_login_creds(steam_id, token, ts)
             self._status_label.setText(f"Authenticated as {steam_id}. Logging in...")
             self._status_label.setStyleSheet("color: #66ff66; font-size: 22px; font-weight: bold;")
-            self._controller.login(steam_id)
+            self._controller.login(steam_id, token, ts)
         else:
             self._status_label.setText("Steam authentication failed. Try again.")
             self._status_label.setStyleSheet("color: #ff6666; font-size: 22px; font-weight: bold;")
@@ -210,4 +221,4 @@ class LoginPage(QWidget):
         self._reg_name_input.setEnabled(False)
         self._status_label.setText("Registering...")
         self._status_label.setStyleSheet("color: #66ff66; font-size: 22px; font-weight: bold;")
-        self._controller.register(self._steam_id, name)
+        self._controller.register(self._steam_id, name, self._token, self._ts)

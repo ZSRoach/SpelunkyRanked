@@ -1,10 +1,11 @@
 """Steam OpenID authentication flow.
 
-Opens the user's browser to Steam's OpenID login page. A local HTTP server
-listens for the callback and extracts the Steam ID from the response.
+Opens the user's browser to the server's Steam auth page. The server handles
+the OpenID exchange with Steam directly, verifies the assertion, signs the
+resulting steam_id, and redirects back to a local HTTP listener with
+the steam_id, a server-signed token, and a timestamp.
 """
 
-import re
 import threading
 import urllib.parse
 import webbrowser
@@ -12,25 +13,28 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from PySide6.QtCore import QObject, Signal
 
-# Steam OpenID endpoint
-STEAM_OPENID_URL = "https://steamcommunity.com/openid/login"
+from config import SERVER_URL
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
-    """HTTP request handler that captures the Steam OpenID callback."""
+    """Captures the server's redirect containing steam_id, token, and ts."""
 
-    steam_id: str | None = None
+    result: dict | None = None
 
     def do_GET(self):
         query = urllib.parse.urlparse(self.path).query
         params = urllib.parse.parse_qs(query)
 
-        claimed_id = params.get("openid.claimed_id", [None])[0]
-        if claimed_id:
-            # Format: https://steamcommunity.com/openid/id/<steam_id>
-            match = re.search(r"/openid/id/(\d+)$", claimed_id)
-            if match:
-                _CallbackHandler.steam_id = match.group(1)
+        steam_id = params.get("steam_id", [None])[0]
+        token = params.get("token", [None])[0]
+        ts = params.get("ts", [None])[0]
+
+        if steam_id and token and ts:
+            _CallbackHandler.result = {
+                "steam_id": steam_id,
+                "token": token,
+                "ts": int(ts),
+            }
 
         page = b"""<!DOCTYPE html>
 <html><head><style>
@@ -53,34 +57,28 @@ p { font-size: 20px; }
 
 
 class SteamAuthWorker(QObject):
-    """Runs Steam OpenID auth on a background thread, emits result via signal."""
+    """Runs Steam auth on a background thread, emits result via signal."""
 
-    finished = Signal(str)  # steam_id or empty string on failure
+    finished = Signal(str, str, int)  # steam_id, token, ts (empty/0 on failure)
 
     def run(self):
-        _CallbackHandler.steam_id = None
+        _CallbackHandler.result = None
 
         # Start local HTTP server on a free port
         server = HTTPServer(("127.0.0.1", 0), _CallbackHandler)
         port = server.server_address[1]
-        callback_url = f"http://localhost:{port}/callback"
 
-        # Build Steam OpenID URL
-        params = {
-            "openid.ns": "http://specs.openid.net/auth/2.0",
-            "openid.mode": "checkid_setup",
-            "openid.return_to": callback_url,
-            "openid.realm": callback_url,
-            "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
-            "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
-        }
-        auth_url = f"{STEAM_OPENID_URL}?{urllib.parse.urlencode(params)}"
-
+        # Open browser to server-side Steam auth
+        auth_url = f"{SERVER_URL}/auth/steam/begin?port={port}"
         webbrowser.open(auth_url)
 
-        # Wait for single callback request (with timeout)
-        server.timeout = 120  # 2 minute timeout
+        # Wait for the server's callback redirect (2 minute timeout)
+        server.timeout = 120
         server.handle_request()
         server.server_close()
 
-        self.finished.emit(_CallbackHandler.steam_id or "")
+        result = _CallbackHandler.result
+        if result:
+            self.finished.emit(result["steam_id"], result["token"], result["ts"])
+        else:
+            self.finished.emit("", "", 0)

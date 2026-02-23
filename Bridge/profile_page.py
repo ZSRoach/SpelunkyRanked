@@ -127,7 +127,7 @@ class ProfilePage(QWidget):
         total = data.get("total_matches", 0)
         wins = data.get("total_wins", 0)
         losses = data.get("total_losses", 0)
-        winrate = f"{wins / total * 100:.1f}%" if total > 0 else "\u2014"
+        winrate = f"{wins / (wins + losses) * 100:.1f}%" if (wins + losses) > 0 else "\u2014"
 
         self._matches_label.setText(str(total))
         self._wins_label.setText(str(wins))
@@ -165,7 +165,7 @@ class ProfilePage(QWidget):
             played = matches_cat.get(cat, 0)
             w = wins_cat.get(cat, 0)
             lo = losses_cat.get(cat, 0)
-            wr = f"{w / played * 100:.0f}%" if played > 0 else "\u2014"
+            wr = f"{w / (w + lo) * 100:.0f}%" if (w + lo) > 0 else "\u2014"
             fast = format_time(fastest_cat[cat]) if cat in fastest_cat else "\u2014"
             avg = format_time(avg_cat[cat]) if cat in avg_cat else "\u2014"
 

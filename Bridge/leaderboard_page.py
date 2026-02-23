@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QFrame,
 )
@@ -25,6 +26,7 @@ class LeaderboardPage(QWidget):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self._controller = controller
+        self._my_row: QFrame | None = None
         self._setup_ui()
         self._data_loaded.connect(self._populate_leaderboard)
 
@@ -33,11 +35,39 @@ class LeaderboardPage(QWidget):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
-        # Header
+        # Header row with title and action buttons
+        header_row = QHBoxLayout()
+
         header = QLabel("Leaderboard")
         header.setStyleSheet(f"color: {CLR_ACTIVE_BTN}; font-size: 36px; font-weight: bold;")
         header.setAlignment(Qt.AlignCenter)
-        layout.addWidget(header)
+        header_row.addWidget(header, stretch=1)
+
+        self._my_rank_btn = QPushButton("My Rank")
+        self._my_rank_btn.setFixedHeight(40)
+        self._my_rank_btn.setFixedWidth(110)
+        self._my_rank_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {CLR_BUTTON_BG}; color: {CLR_TEXT}; "
+            f"border-radius: 4px; font-size: 19px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: #3e4278; }}"
+            f"QPushButton:disabled {{ background-color: #1a1a28; color: #555; }}"
+        )
+        self._my_rank_btn.setEnabled(False)
+        self._my_rank_btn.clicked.connect(self._scroll_to_my_rank)
+        header_row.addWidget(self._my_rank_btn)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setFixedHeight(40)
+        refresh_btn.setFixedWidth(100)
+        refresh_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {CLR_BUTTON_BG}; color: {CLR_TEXT}; "
+            f"border-radius: 4px; font-size: 19px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: #3e4278; }}"
+        )
+        refresh_btn.clicked.connect(self.refresh)
+        header_row.addWidget(refresh_btn)
+
+        layout.addLayout(header_row)
 
         # Column headers
         header_row = QFrame()
@@ -94,6 +124,13 @@ class LeaderboardPage(QWidget):
         super().showEvent(event)
         self._fetch_leaderboard()
 
+    def refresh(self):
+        self._fetch_leaderboard()
+
+    def _scroll_to_my_rank(self):
+        if self._my_row:
+            self._scroll.ensureWidgetVisible(self._my_row)
+
     def _fetch_leaderboard(self):
         """Fetch leaderboard in background thread."""
         self._loading_label.show()
@@ -110,6 +147,8 @@ class LeaderboardPage(QWidget):
     def _populate_leaderboard(self, players: list):
         """Populate the leaderboard with player data."""
         self._loading_label.hide()
+        self._my_row = None
+        self._my_rank_btn.setEnabled(False)
 
         # Save scroll position before clearing
         saved_scroll = self._scroll.verticalScrollBar().value()
@@ -124,6 +163,9 @@ class LeaderboardPage(QWidget):
         for i, player in enumerate(players):
             row = self._create_player_row(i + 1, player)
             self._list_layout.insertWidget(self._list_layout.count() - 1, row)
+            if player.get("player_name") == self._controller.player_name:
+                self._my_row = row
+                self._my_rank_btn.setEnabled(True)
 
         # Restore scroll position after layout settles
         from PySide6.QtCore import QTimer

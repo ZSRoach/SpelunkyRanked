@@ -49,6 +49,7 @@ class BridgeController(QObject):
     ws_disconnected = Signal()
     game_connected = Signal()
     game_disconnected = Signal()
+    seed_changed = Signal()
 
     # ---- Version mismatch signals ----
     bridge_version_mismatch = Signal(str)   # bridge download URL
@@ -68,12 +69,19 @@ class BridgeController(QObject):
         self.match_opponent: str = ""
         self.match_opponent_elo: int = 0
 
+        # Login token (server-signed, required for all auth requests)
+        self._login_token: str = ""
+        self._login_ts: int = 0
+
         # Server version info (populated during login)
         self._server_version: float = 0.0
         self._game_mod_download_url: str = ""
 
         # Whether the WS was deliberately stopped (logout/stop_networking)
         self._ws_intentional_disconnect: bool = False
+        # Set when game_disconnect couldn't be sent because WS was down;
+        # cleared and retried on the next WS reconnect.
+        self._pending_match_disconnect: bool = False
 
         # Networking
         self.ws = WSClient()
@@ -118,7 +126,7 @@ class BridgeController(QObject):
 
     # ---- Public API ----
 
-    def login(self, steam_id: str) -> None:
+    def login(self, steam_id: str, token: str, ts: int) -> None:
         """Authenticate with the server. Runs in background thread.
 
         First checks the bridge version against the server. If mismatched,
@@ -142,14 +150,18 @@ class BridgeController(QObject):
                     self.bridge_version_mismatch.emit(bridge_download_url)
                     return
 
-                data = api_client.login(steam_id)
+                data = api_client.login(steam_id, token, ts)
                 if data.get("new_player"):
                     log.info("New player detected, registration needed")
                     self.steam_id = steam_id
+                    self._login_token = token
+                    self._login_ts = ts
                     self.registration_needed.emit(steam_id)
                 else:
                     log.info("Login success for %s (%s)", data.get("player_name"), steam_id)
                     self.steam_id = steam_id
+                    self._login_token = token
+                    self._login_ts = ts
                     self.player_name = data.get("player_name", "")
                     self.player_data = data
                     self.login_success.emit(data)
@@ -159,24 +171,29 @@ class BridgeController(QObject):
                     self.login_banned.emit()
                 else:
                     log.error("Login failed: %s", e)
-                    self.login_failed.emit(str(e))
+                    self.login_failed.emit("Server returned an error. Please try again.")
+            except requests.RequestException as e:
+                log.error("Login failed — could not reach server: %s", e)
+                self.login_failed.emit("Could not connect to the server.")
             except Exception as e:
                 log.error("Login failed: %s", e)
-                self.login_failed.emit(str(e))
+                self.login_failed.emit("An unexpected error occurred. Please try again.")
 
         threading.Thread(target=_do, daemon=True).start()
 
-    def register(self, steam_id: str, player_name: str) -> None:
+    def register(self, steam_id: str, player_name: str, token: str, ts: int) -> None:
         """Create a new player account with the chosen name. Runs in background thread."""
         def _do():
             try:
-                resp = api_client.register_raw(steam_id, player_name)
+                resp = api_client.register_raw(steam_id, player_name, token, ts)
                 if resp.status_code != 200:
                     error = resp.json().get("error", "Registration failed")
                     self.registration_failed.emit(error)
                     return
                 data = resp.json()
                 self.steam_id = steam_id
+                self._login_token = token
+                self._login_ts = ts
                 self.player_name = player_name
                 self.player_data = data
                 self.login_success.emit(data)
@@ -189,7 +206,7 @@ class BridgeController(QObject):
         """Start UDP server and WS connection after login."""
         self._ws_intentional_disconnect = False
         self.udp.start()
-        self.ws.connect_to_server(self.steam_id)
+        self.ws.connect_to_server(self.steam_id, self._login_token, self._login_ts)
 
     def stop_networking(self) -> None:
         """Shut down all networking."""
@@ -202,8 +219,10 @@ class BridgeController(QObject):
         """Leave queue if active, stop all networking, clear cache, and reset session state."""
         if self.in_queue:
             steam_id = self.steam_id
+            token = self._login_token
+            ts = self._login_ts
             threading.Thread(
-                target=lambda: api_client.queue_leave(steam_id),
+                target=lambda: api_client.queue_leave(steam_id, token, ts),
                 daemon=True,
             ).start()
         self.stop_networking()
@@ -217,6 +236,9 @@ class BridgeController(QObject):
         self.match_category = ""
         self.match_opponent = ""
         self.match_opponent_elo = 0
+        self._login_token = ""
+        self._login_ts = 0
+        self._pending_match_disconnect = False
 
     def start_active_matches_polling(self) -> None:
         """Immediately poll active matches, then repeat every QUEUE_POLL_INTERVAL."""
@@ -247,9 +269,11 @@ class BridgeController(QObject):
 
     def refresh_player_data(self) -> None:
         """Re-fetch player data from server."""
+        token = self._login_token
+        ts = self._login_ts
         def _do():
             try:
-                data = api_client.login(self.steam_id)
+                data = api_client.login(self.steam_id, token, ts)
                 if not data.get("new_player"):
                     self.player_data = data
                     self.player_data_refreshed.emit(data)
@@ -296,13 +320,20 @@ class BridgeController(QObject):
 
     def _on_ws_connected(self) -> None:
         log.info("WebSocket connected to server")
+        # If a game_disconnect couldn't be sent while the WS was down, send it now
+        # so the server can scrap the match and notify the opponent.
+        if self._pending_match_disconnect:
+            self._pending_match_disconnect = False
+            self.ws.send_game_disconnect()
         # Issue 1: if the server removed us from the queue during a WS blip, re-join
         if self.in_queue:
             log.info("WS reconnected while in_queue=True — re-joining queue for %s", self.steam_id)
             steam_id = self.steam_id
+            token = self._login_token
+            ts = self._login_ts
             def _rejoin():
                 try:
-                    api_client.queue_join(steam_id)
+                    api_client.queue_join(steam_id, token, ts)
                     log.info("Re-queue join succeeded for %s", steam_id)
                 except requests.HTTPError as e:
                     if e.response is not None and e.response.status_code == 403:
@@ -350,15 +381,18 @@ class BridgeController(QObject):
 
     def _on_game_queue_ready(self) -> None:
         log.info("UDP: game_queue_ready received, steam_id=%s", self.steam_id)
+        steam_id = self.steam_id
+        token = self._login_token
+        ts = self._login_ts
         def _do():
             try:
-                api_client.queue_join(self.steam_id)
-                log.info("Queue join succeeded for %s", self.steam_id)
+                api_client.queue_join(steam_id, token, ts)
+                log.info("Queue join succeeded for %s", steam_id)
                 self.in_queue = True
                 self.queue_joined.emit()
             except requests.HTTPError as e:
                 if e.response is not None and e.response.status_code == 403:
-                    log.warning("Queue join rejected — player is banned: %s", self.steam_id)
+                    log.warning("Queue join rejected — player is banned: %s", steam_id)
                     self.udp.send_to_game({"event": "is_banned"})
                 else:
                     log.error("Queue join failed: %s", e)
@@ -375,16 +409,22 @@ class BridgeController(QObject):
         if self.in_match or self.in_ban_phase:
             self.in_match = False
             self.in_ban_phase = False
-            self.ws.send_game_disconnect()
+            if not self.ws.send_game_disconnect():
+                # WS is currently down — flag for retry on reconnect so the
+                # server can still scrap the match and notify the opponent.
+                self._pending_match_disconnect = True
             self.match_scrapped.emit()
         self.game_disconnected.emit()
 
     def _leave_queue(self) -> None:
         log.info("Leaving queue for steam_id=%s", self.steam_id)
+        steam_id = self.steam_id
+        token = self._login_token
+        ts = self._login_ts
         def _do():
             try:
-                api_client.queue_leave(self.steam_id)
-                log.info("Queue leave succeeded for %s", self.steam_id)
+                api_client.queue_leave(steam_id, token, ts)
+                log.info("Queue leave succeeded for %s", steam_id)
                 self.in_queue = False
                 self.queue_left.emit()
             except Exception as e:
@@ -501,6 +541,7 @@ class BridgeController(QObject):
 
     def _on_ws_do_seed_change(self, data: dict) -> None:
         self.udp.send_critical({"event": "do_seed_change", "seed": data.get("seed", "")})
+        self.seed_changed.emit()
 
     def _on_ws_receive_draw_request(self) -> None:
         self.udp.send_to_game({"event": "receive_draw_request"})

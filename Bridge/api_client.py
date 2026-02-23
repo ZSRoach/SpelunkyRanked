@@ -11,49 +11,39 @@ def get_server_version() -> dict:
     return resp.json()
 
 
-def login(steam_id: str) -> dict:
+def login(steam_id: str, token: str, ts: int) -> dict:
     resp = requests.post(
         f"{SERVER_URL}/auth/login",
-        json={"steam_id": steam_id},
+        json={"steam_id": steam_id, "token": token, "ts": ts},
         timeout=10,
     )
     resp.raise_for_status()
     return resp.json()
 
 
-def register(steam_id: str, player_name: str) -> dict:
-    resp = requests.post(
-        f"{SERVER_URL}/auth/register",
-        json={"steam_id": steam_id, "player_name": player_name},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def register_raw(steam_id: str, player_name: str) -> requests.Response:
+def register_raw(steam_id: str, player_name: str, token: str, ts: int) -> requests.Response:
     """Like register() but returns the raw Response so the caller can inspect status codes."""
     return requests.post(
         f"{SERVER_URL}/auth/register",
-        json={"steam_id": steam_id, "player_name": player_name},
+        json={"steam_id": steam_id, "player_name": player_name, "token": token, "ts": ts},
         timeout=10,
     )
 
 
-def queue_join(steam_id: str) -> dict:
+def queue_join(steam_id: str, token: str, ts: int) -> dict:
     resp = requests.post(
         f"{SERVER_URL}/queue/join",
-        json={"steam_id": steam_id},
+        json={"steam_id": steam_id, "token": token, "ts": ts},
         timeout=10,
     )
     resp.raise_for_status()
     return resp.json()
 
 
-def queue_leave(steam_id: str) -> dict:
+def queue_leave(steam_id: str, token: str, ts: int) -> dict:
     resp = requests.post(
         f"{SERVER_URL}/queue/leave",
-        json={"steam_id": steam_id},
+        json={"steam_id": steam_id, "token": token, "ts": ts},
         timeout=10,
     )
     resp.raise_for_status()

@@ -35,10 +35,14 @@ class WSClient(QObject):
         super().__init__(parent)
         self._sio: socketio.Client | None = None
         self._steam_id: str = ""
+        self._token: str = ""
+        self._ts: int = 0
 
-    def connect_to_server(self, steam_id: str) -> None:
+    def connect_to_server(self, steam_id: str, token: str, ts: int) -> None:
         """Connect to the server WebSocket. Call from main thread."""
         self._steam_id = steam_id
+        self._token = token
+        self._ts = ts
 
         self._sio = socketio.Client(reconnection=True, reconnection_attempts=5)
 
@@ -65,7 +69,7 @@ class WSClient(QObject):
             self._sio.connect(
                 WS_URL,
                 namespaces=[WS_NAMESPACE],
-                auth={"steam_id": self._steam_id},
+                auth={"steam_id": self._steam_id, "token": self._token, "ts": self._ts},
                 wait_timeout=10,
             )
         except Exception:
@@ -125,10 +129,13 @@ class WSClient(QObject):
         if self._sio and self._sio.connected:
             self._sio.emit("send_chat", {"message": message}, namespace=WS_NAMESPACE)
 
-    def send_game_disconnect(self) -> None:
-        """Notify the server that the game process disconnected mid-match."""
+    def send_game_disconnect(self) -> bool:
+        """Notify the server that the game process disconnected mid-match.
+        Returns True if the message was sent, False if the WS was not connected."""
         if self._sio and self._sio.connected:
             self._sio.emit("game_disconnect", {}, namespace=WS_NAMESPACE)
+            return True
+        return False
 
     def send_request_seed_change(self) -> None:
         if self._sio and self._sio.connected:

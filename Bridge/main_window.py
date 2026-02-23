@@ -148,6 +148,7 @@ class MainWindow(QMainWindow):
         self._controller.ws_connected.connect(self._on_ws_reconnected)
         self._controller.ws_disconnected.connect(self._on_ws_disconnected)
         self._settings_page.logout_requested.connect(self._on_logout)
+        self._settings_page.overlay_always_on_top_changed.connect(self._overlay.set_always_on_top)
 
         # Reconnect timer
         self._reconnect_timer = QTimer(self)

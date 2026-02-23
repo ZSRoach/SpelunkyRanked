@@ -180,6 +180,7 @@ class MatchHistoryPage(QWidget):
         self._my_matches_mode = True
         self._offset = 0
         self._matches: list[dict] = []
+        self._cached_all: list = []
         self._batch_ready.connect(self._do_append_matches)
         self._setup_ui()
 
@@ -207,6 +208,17 @@ class MatchHistoryPage(QWidget):
         self._all_btn.setFixedWidth(180)
         self._all_btn.clicked.connect(lambda: self._set_mode(False))
         toggle_row.addWidget(self._all_btn)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setFixedHeight(64)
+        refresh_btn.setFixedWidth(120)
+        refresh_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {CLR_BUTTON_BG}; color: {CLR_TEXT}; "
+            f"border-radius: 4px; font-weight: bold; font-size: 20px; padding: 0 12px; }}"
+            f"QPushButton:hover {{ background-color: #3e4278; }}"
+        )
+        refresh_btn.clicked.connect(self.refresh)
+        toggle_row.addWidget(refresh_btn)
 
         layout.addLayout(toggle_row)
 
@@ -287,6 +299,7 @@ class MatchHistoryPage(QWidget):
     def refresh(self):
         self._offset = 0
         self._matches.clear()
+        self._cached_all = []
         self._clear_list()
         self._load_batch()
 
@@ -297,14 +310,15 @@ class MatchHistoryPage(QWidget):
         def _do():
             try:
                 if self._my_matches_mode:
-                    # Try cache first for offset 0
+                    # Load full cache once per refresh cycle
                     if self._offset == 0:
-                        cached = match_cache.load_cached_matches()
-                        if cached:
-                            batch = cached[:10]
-                            self._offset = len(cached)
-                            self._append_matches(batch)
-                            return
+                        self._cached_all = match_cache.load_cached_matches()
+                    # Page through cache before hitting the server
+                    if self._cached_all and self._offset < len(self._cached_all):
+                        batch = self._cached_all[self._offset:self._offset + 10]
+                        self._offset += len(batch)
+                        self._append_matches(batch)
+                        return
                     batch = self._controller.fetch_my_matches(
                         offset=self._offset, limit=10
                     )

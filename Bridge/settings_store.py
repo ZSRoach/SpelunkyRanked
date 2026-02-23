@@ -43,41 +43,60 @@ def get_overlay_color() -> str:
     return data.get("overlay_color", DEFAULT_OVERLAY_COLOR)
 
 
+def get_overlay_always_on_top() -> bool:
+    return _load().get("overlay_always_on_top", True)
+
+
+def set_overlay_always_on_top(value: bool) -> None:
+    data = _load()
+    data["overlay_always_on_top"] = value
+    _save(data)
+
+
 def set_overlay_color(color: str) -> None:
     data = _load()
     data["overlay_color"] = color
     _save(data)
 
 
-def get_steam_id() -> str:
-    """Return the decrypted steam_id, or empty string if absent or unreadable."""
+def get_login_creds() -> tuple[str, str, int] | None:
+    """Return (steam_id, token, ts) from stored credentials, or None if absent/unreadable."""
     data = _load()
-    blob = data.get("steam_id", "")
+    blob = data.get("login_creds", "")
     if not blob:
-        return ""
-    return _unprotect(blob) or ""
+        return None
+    plaintext = _unprotect(blob)
+    if not plaintext:
+        return None
+    try:
+        steam_id, token, ts_str = plaintext.split("|", 2)
+        return steam_id, token, int(ts_str)
+    except Exception:
+        return None
 
 
-def set_steam_id(steam_id: str) -> None:
+def set_login_creds(steam_id: str, token: str, ts: int) -> None:
+    """DPAPI-encrypt and store the login credentials."""
+    plaintext = f"{steam_id}|{token}|{ts}"
     data = _load()
-    data["steam_id"] = _protect(steam_id)
+    data["login_creds"] = _protect(plaintext)
     _save(data)
 
 
-def is_steam_id_tampered() -> bool:
-    """Return True if the steam_id blob in settings.json cannot be decrypted.
+def is_creds_tampered() -> bool:
+    """Return True if the login_creds blob cannot be decrypted.
 
-    DPAPI decryption fails if the ciphertext was modified, copied from another
-    machine, or belongs to a different Windows user — all forms of tampering.
+    DPAPI decryption fails if the ciphertext was modified externally.
+    A valid token still requires server-side HMAC verification on login.
     """
     data = _load()
-    blob = data.get("steam_id", "")
+    blob = data.get("login_creds", "")
     if not blob:
         return False
     return _unprotect(blob) is None
 
 
-def clear_steam_id() -> None:
+def clear_login_creds() -> None:
     data = _load()
-    data.pop("steam_id", None)
+    data.pop("login_creds", None)
     _save(data)
