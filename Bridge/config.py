@@ -4,7 +4,7 @@ import os
 import sys
 
 # Bridge version — must match server VERSION (float)
-BRIDGE_VERSION = 1.03
+BRIDGE_VERSION = 1.04
 
 # Server connection
 SERVER_URL = os.environ.get("SPEEDRUN_SERVER_URL", "https://spelunkyranked.duckdns.org")
