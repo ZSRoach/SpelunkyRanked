@@ -2257,8 +2257,7 @@ function voteButtonHandle()
         elseif (buttonHovering == 2 and not sentDrawVote) then
             sentDrawVote = true
             requestDraw()
-        elseif (buttonHovering == 3 and not sentForfeit) then
-            sentForfeit = true
+        elseif (buttonHovering == 3) then
             sendForfeit()
         end
     end
