@@ -1,6 +1,6 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.04',
+    version = '1.05',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -342,11 +342,11 @@ banButtonIndex = 0
 queueStateText = "Not in queue"
 callbackList = {}
 scrapCallbackList = {}
-completionCallback = 0
+resendComplete = 0
 
 --sets variable values to defaults when camp loaded first time - used post match
 function defaultValues()
-    completionCallback = 0
+    resendComplete = 0
     scrapCallbackList = {}
     blockingInputs = false
     returningInputs = false
@@ -1027,9 +1027,6 @@ function timedOps()
                     matchResultReceived = true
                     result = data.result
                     eloChange = data.elo_change
-                    if completionCallback ~= 0 then
-                        clear_callback(completionCallback) 
-                    end
                     endMatch()
                 end
                 server:send(json.encode({ event = "ack", ack_event = "match_result"}), bridgeAddress)
@@ -2099,7 +2096,12 @@ end
 
 function testWin()
     if matchStarted and state.screen == SCREEN.WIN then
-        completionCallback = set_global_interval(completionReport,60)
+        if resendComplete <= 0 then
+            completionReport()
+            resendComplete = 120
+        else 
+            resendComplete = resendComplete - 1
+        end
     end
 end
 
