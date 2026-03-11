@@ -66,6 +66,7 @@ class BridgeController(QObject):
         self.in_queue: bool = False
         self.in_ban_phase: bool = False
         self.in_match: bool = False
+        self.in_postmatch: bool = False
         self.match_category: str = ""
         self.match_opponent: str = ""
         self.match_opponent_elo: int = 0
@@ -250,6 +251,7 @@ class BridgeController(QObject):
         self.in_queue = False
         self.in_ban_phase = False
         self.in_match = False
+        self.in_postmatch = False
         self.match_category = ""
         self.match_opponent = ""
         self.match_opponent_elo = 0
@@ -611,6 +613,7 @@ class BridgeController(QObject):
         log.info("WS: match_result — result=%s elo_change=%s", data.get("result"), data.get("elo_change"))
         self.in_match = False
         self.in_ban_phase = False
+        self.in_postmatch = True
         placements_remaining = data.get("placements_remaining", -1)
         self.placements_remaining = placements_remaining
         if placements_remaining == 0:
@@ -641,7 +644,7 @@ class BridgeController(QObject):
         self.match_scrapped.emit()
 
     def _on_game_send_chat(self, message: str) -> None:
-        if not self.in_match and not self.in_ban_phase:
+        if not self.in_match and not self.in_ban_phase and not self.in_postmatch:
             return
         self.ws.send_chat(message)
 
@@ -664,6 +667,7 @@ class BridgeController(QObject):
         self.ws.send_forfeit()
 
     def _on_game_close_postmatch(self) -> None:
+        self.in_postmatch = False
         self.ws.send_close_postmatch()
 
     def _on_ws_rank_reveal(self, data: dict) -> None:
@@ -679,6 +683,7 @@ class BridgeController(QObject):
         self.refresh_player_data()
 
     def _on_ws_postmatch_closed(self) -> None:
+        self.in_postmatch = False
         self.udp.send_to_game({"event": "postmatch_closed"})
 
     def _on_ws_receive_seed_change_request(self) -> None:
@@ -720,6 +725,7 @@ class BridgeController(QObject):
         self._game_in_grace = False
         self.in_match = False
         self.in_ban_phase = False
+        self.in_postmatch = True
         placements_remaining = data.get("placements_remaining", -1)
         if placements_remaining is not None and placements_remaining >= 0:
             self.placements_remaining = placements_remaining

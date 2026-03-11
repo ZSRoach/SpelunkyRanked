@@ -245,7 +245,7 @@ class OverlayWindow(QWidget):
         self._apply_bg_color()
         self._update_font_sizes()
 
-    def _on_progress(self, area: int, theme: int):
+    def _on_progress(self, area: int, level: int, theme: int):
         # Dwelling (theme 1) is the starting area — keep "Started Match"
         if theme == 1 or theme == 0:
             return

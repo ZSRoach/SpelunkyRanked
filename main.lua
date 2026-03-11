@@ -1,6 +1,6 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.10',
+    version = '1.11',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -1544,8 +1544,11 @@ function timedOps()
             -- Match start (ack required)
             elseif event == "match_start" then 
                 if not matchStarted then
+                    defaultMatchValues()
                     matchStarted = true
                     state.theme_start = THEME.DWELLING
+                    state.level_start = 1
+                    state.world_start = 1
                     categoryType = data.category
                     seed = tonumber(data.seed, 16)
                     reportCount = 0
@@ -1665,6 +1668,8 @@ function timedOps()
                     opponentLevel = data.level
                     matchStarted = true
                     state.theme_start = THEME.DWELLING
+                    state.level_start = 1
+                    state.world_start = 1
                     categoryType = data.category
                     seed = tonumber(data.seed, 16)
                     processChat("Since your game closed, your saves were lost. Navigate to 1-1 to continue.", "Match Info")
@@ -2101,17 +2106,16 @@ function determineCheckpoint()
         warpIndex = 1
         return
     end
-    for i, lev in ipairs(levelOrder) do
-        if (furthestLevel[1]==lev[1]) and (furthestLevel[2] == lev[2]) then
-            table.insert(warpTo,levelOrder[i-3][1])
-            table.insert(warpTo,levelOrder[i-3][2])
-            warpIndex = i-3
-            return
-        end
-    end
-    warpTo = {1,1}
-    warpIndex = 1
-    log_print("Something went wrong, and the checkpoint was set to the default 1-1")
+    local ind = getLevelIndex(furthestLevel[1], furthestLevel[2])
+    table.insert(warpTo,levelOrder[ind-3][1])
+    table.insert(warpTo,levelOrder[ind-3][2])
+    warpIndex = i-3
+    if not warpTo then
+        warpTo = {1,1}
+        warpIndex = 1
+        log_print("Something went wrong, and the checkpoint was set to the default 1-1")
+    end 
+
 end
 
 function warpToCheckpoint()
@@ -2160,6 +2164,8 @@ function force11()
     state.screen_last = state.screen
     state.screen_next = SCREEN.LEVEL
     state.theme_start = THEME.DWELLING
+    state.level_start = 1
+    state.world_start = 1
     state.world_next = 1
     state.level_next = 1
     state.theme_next = 1
@@ -2843,6 +2849,7 @@ end
 function postLevelRequirements() --checks for category violations and requirements that happen post-level
     if not matchStarted then return end
     if warping then return end
+    if state.screen ~= SCREEN.TRANSITION then return end
     local violated = false
     --pet violations in low
     local inventory = state.items.player_inventory[1]
@@ -2870,7 +2877,7 @@ function postLevelRequirements() --checks for category violations and requiremen
             violated = true
             log_print("no crown violation")
         end
-        if (state.world>=5 and not hasTablet) then 
+        if (state.world == 5 and not hasTablet) then 
             violated = true
             log_print("no tablet violation")
         end
@@ -2889,7 +2896,7 @@ function postLevelRequirements() --checks for category violations and requiremen
         end
     end
     --specific chain requirements
-    if (categoryType=="Abzu%" or categoryType == "No TP Abzu%") then
+    if (categoryType =="Abzu%" or categoryType == "No TP Abzu%") then
         --level based
         if state.screen == SCREEN.TRANSITION then
             if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TIDE_POOL) then
