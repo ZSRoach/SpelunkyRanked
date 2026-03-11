@@ -2,6 +2,8 @@
 
 > **Note:** Spelunky Ranked is not affiliated with [Mossranking](https://mossranking.com), or [MCSR Ranked](https://mcsrranked.com/). Both are great services — check them out!
 
+If you'd like to show your appreciation for the project, you can do so at my [kofi](https://ko-fi.com/zsroach). Donations are not expected as this project was done out of my love for the game, and will not give you access to anything special, so thank you to anyone who gives anyway.
+
 ---
 
 ## Overview
@@ -65,9 +67,9 @@ Both players receive the same set of **5 randomly selected categories** from the
 ### 3. Play the Match
 
 **Deaths & Resets**
-Progress is saved on every level. On death, instant restart, or category rule violation, players are returned to **four levels before their furthest point of progression**.
+Progress is saved on every level. On death, instant restart, or category rule violation, players are returned to **three levels before their furthest point of progression**.
 
-*Example: A death on 7-4 sends you back to 6-4. If you then die on 7-1, you're sent back to 6-4 again.*
+*Example: A death on 7-4 sends you back to 7-1. If you then die on 7-2, you're sent back to 7-1 again.*
 
 **Mid Match Actions**
 Opening the pause menu during a match shows a sidebar with four options:
@@ -86,6 +88,9 @@ Any action deemed to violate the current category's rules results in an instant 
 
 **Completed Matches**
 Finished match data is saved to the server, and is visible in the S2Ranked app. Look at personal stats, community-wide achievements, active matches, and more.
+
+**Disconnections**
+Players who disconnect during a match will have 30 seconds to reconnect before the server forfeits on their behalf.
 
 ---
 
@@ -107,12 +112,14 @@ Finished match data is saved to the server, and is visible in the S2Ranked app. 
 | Duat% |
 | No TP Abzu% |
 | No TP Duat% |
+| No TP No Gold |
+| Cosmic Ocean% |
 
 ---
 
-## Rank Thresholds
+## Rank Thresholds & Elo
 
-> *Rank thresholds are subject to change. Elo gains/losses are currently flat values — a full algorithm is planned for a future update.*
+> Elo gains and losses from a match are determined by a number of factors, including opponent elo, and match completion time.
 
 | Rank | Elo Range |
 |------|-----------|
@@ -124,4 +131,4 @@ Finished match data is saved to the server, and is visible in the S2Ranked app. 
 | Cosmic | 1,600+ |
 
 ## Download and Install Process
-Download and install [Modlunky](https://github.com/spelunky-fyi/modlunky2/releases). Then download `S2Ranked.zip` and `Spelunky Ranked.zip` from the releases page. Place the files from `Spelunky Ranked.zip` into the `/Spelunky 2/Mods/Packs/Spelunky Ranked/` folder. You can place the `S2Ranked.zip` files anywhere you'd like, really, but I recommend `/Spelunky 2/S2Ranked/` for ease of access. In `/S2Ranked/`, run `setup.bat` as an administrator, and then launch S2Ranked.exe. Once you login, **close the app, and relaunch.** The connection between the game and the app doesn't seem to take before the second launch of the app. Then launch Modlunky, and enable the mod from the Playlunky tab. I recommend using the Playlunky save as to not affect your existing player profile. **Also if your playlunky save is fresh, you may want to copy your normal save and use that as the playlunky save too. Just rename a copy to `savegame.sav.pl`**. I'm not actually sure what speedrun mode does, but keep it off I guess. Launch the game and `S2Ranked.exe`, and happy queueing!
+Download and install [Modlunky](https://github.com/spelunky-fyi/modlunky2/releases). Then download `S2Ranked.zip` and `Spelunky Ranked.zip` from the releases page. Place the files from `Spelunky Ranked.zip` into the `/Spelunky 2/Mods/Packs/Spelunky Ranked/` folder. You can place the `S2Ranked.zip` files anywhere you'd like, really, but I recommend `/Spelunky 2/S2Ranked/` for ease of access. In `/S2Ranked/`, run `setup.bat` as an administrator, and then launch S2Ranked.exe. Once you login, **close the app, and relaunch.** The connection between the game and the app doesn't seem to take before the second launch of the app. Then launch Modlunky, and enable the mod from the Playlunky tab. I recommend using the Playlunky save as to not affect your existing player profile. **Also if your playlunky save is fresh, you may want to copy your normal save and use that as the playlunky save too. Just rename a copy to `savegame.sav.pl`**. Make sure speedrun mode is **OFF** or the mod will not work properly. Launch the game and `S2Ranked.exe`, and happy queueing!

@@ -1,6 +1,9 @@
 # Compiled Lua sources
 luac.out
 
+Bridge/__pycache__
+*.spec
+
 # luarocks build files
 *.src.rock
 *.zip

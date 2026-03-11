@@ -4,11 +4,16 @@ import os
 import sys
 
 # Bridge version — must match server VERSION (float)
-BRIDGE_VERSION = 1.05
+BRIDGE_VERSION = 1.10
 
-# Server connection
-SERVER_URL = os.environ.get("SPEEDRUN_SERVER_URL", "https://spelunkyranked.duckdns.org")
-WS_URL = os.environ.get("SPEEDRUN_WS_URL", "https://spelunkyranked.duckdns.org")
+# Server connection — HTTPS is always enforced even if the env var is set to http://
+def _ensure_https(url: str) -> str:
+    if url.startswith("http://"):
+        return "https://" + url[7:]
+    return url
+
+SERVER_URL = _ensure_https(os.environ.get("SPEEDRUN_SERVER_URL", "https://spelunkyranked.duckdns.org"))
+WS_URL = _ensure_https(os.environ.get("SPEEDRUN_WS_URL", "https://spelunkyranked.duckdns.org"))
 WS_NAMESPACE = "/ws/match"
 
 # UDP — both sides listen on known ports
@@ -90,6 +95,7 @@ def full_match_datetime(match_start_time: str) -> str:
         return ""
 
 # ---- UI Colors ----
+CLR_UNRANKED = "#b8a07a"       # "[Unranked]" text color
 CLR_MAIN_BG = "#191b36"        # main window background
 CLR_WIDGET_BG = "#23264a"      # sidebar, widget/card backgrounds
 CLR_BUTTON_BG = "#323666"      # button, table header backgrounds
@@ -120,6 +126,7 @@ THEME_NAMES = {
     7: "Ice Caves",
     8: "Neo Babylon",
     9: "Sunken City",
+    10: "Cosmic Ocean",
 }
 
 # Rank thresholds: (name, min_elo, max_elo) — None means no ceiling

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 import match_cache
 from rank_utils import create_rank_icon
-from config import CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_ACTIVE_BTN, CLR_TEXT, CLR_TEXT_BRIGHT, format_time, relative_time
+from config import CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_ACTIVE_BTN, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_UNRANKED, format_time, relative_time
 
 
 def _elo_change_text(change: int) -> str:
@@ -90,29 +90,38 @@ class MatchCard(QFrame):
             time_str = format_time(comp_time) if comp_time else "—"
             time_color = CLR_TEXT_BRIGHT
 
+        is_placement_match = bool(match_data.get("is_placement", 0))
+
         # Player 1 (icon + name + elo), fixed widths keep left/right sides symmetric
-        p1_icon = create_rank_icon(p1_elo, size=24)
-        layout.addWidget(p1_icon)
+        if p1_elo != -1:
+            p1_icon = create_rank_icon(p1_elo, size=24)
+            layout.addWidget(p1_icon)
         p1_name = _make_name_label(
             match_data.get("player_1_name") or p1_id, p1_color, Qt.AlignLeft | Qt.AlignVCenter
         )
         layout.addWidget(p1_name)
         p1_elo_widget = QWidget()
-        p1_elo_widget.setFixedWidth(50)
+        p1_elo_widget.setFixedWidth(80)
         p1_elo_widget.setStyleSheet("background: transparent;")
         p1_elo_col = QVBoxLayout(p1_elo_widget)
         p1_elo_col.setSpacing(0)
         p1_elo_col.setContentsMargins(0, 0, 0, 0)
-        p1_elo_lbl = QLabel(str(p1_elo))
-        p1_elo_lbl.setStyleSheet(f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 22px; font-weight: bold;")
-        p1_elo_lbl.setAlignment(Qt.AlignCenter)
-        p1_elo_col.addWidget(p1_elo_lbl)
-        p1_change = match_data.get("player_1_elo_change")
-        if p1_change is not None:
-            p1_change_lbl = QLabel(_elo_change_text(p1_change))
-            p1_change_lbl.setStyleSheet(f"background: transparent; color: {p1_change_color}; font-size: 18px; font-weight: bold;")
-            p1_change_lbl.setAlignment(Qt.AlignCenter)
-            p1_elo_col.addWidget(p1_change_lbl)
+        if p1_elo == -1:
+            p1_elo_lbl = QLabel("Placement" if is_placement_match else "[Unranked]")
+            p1_elo_lbl.setStyleSheet(f"background: transparent; color: {CLR_UNRANKED}; font-size: 16px; font-weight: bold;")
+            p1_elo_lbl.setAlignment(Qt.AlignCenter)
+            p1_elo_col.addWidget(p1_elo_lbl)
+        else:
+            p1_elo_lbl = QLabel(str(p1_elo))
+            p1_elo_lbl.setStyleSheet(f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 22px; font-weight: bold;")
+            p1_elo_lbl.setAlignment(Qt.AlignCenter)
+            p1_elo_col.addWidget(p1_elo_lbl)
+            p1_change = match_data.get("player_1_elo_change")
+            if p1_change is not None:
+                p1_change_lbl = QLabel(_elo_change_text(p1_change))
+                p1_change_lbl.setStyleSheet(f"background: transparent; color: {p1_change_color}; font-size: 18px; font-weight: bold;")
+                p1_change_lbl.setAlignment(Qt.AlignCenter)
+                p1_elo_col.addWidget(p1_change_lbl)
         layout.addWidget(p1_elo_widget)
 
         layout.addStretch()
@@ -141,28 +150,35 @@ class MatchCard(QFrame):
 
         # Player 2 (elo + name + icon), mirrors player 1 widths exactly
         p2_elo_widget = QWidget()
-        p2_elo_widget.setFixedWidth(50)
+        p2_elo_widget.setFixedWidth(80)
         p2_elo_widget.setStyleSheet("background: transparent;")
         p2_elo_col = QVBoxLayout(p2_elo_widget)
         p2_elo_col.setSpacing(0)
         p2_elo_col.setContentsMargins(0, 0, 0, 0)
-        p2_elo_lbl = QLabel(str(p2_elo))
-        p2_elo_lbl.setStyleSheet(f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 22px; font-weight: bold;")
-        p2_elo_lbl.setAlignment(Qt.AlignCenter)
-        p2_elo_col.addWidget(p2_elo_lbl)
-        p2_change = match_data.get("player_2_elo_change")
-        if p2_change is not None:
-            p2_change_lbl = QLabel(_elo_change_text(p2_change))
-            p2_change_lbl.setStyleSheet(f"background: transparent; color: {p2_change_color}; font-size: 18px; font-weight: bold;")
-            p2_change_lbl.setAlignment(Qt.AlignCenter)
-            p2_elo_col.addWidget(p2_change_lbl)
+        if p2_elo == -1:
+            p2_elo_lbl = QLabel("Placement" if is_placement_match else "[Unranked]")
+            p2_elo_lbl.setStyleSheet(f"background: transparent; color: {CLR_UNRANKED}; font-size: 16px; font-weight: bold;")
+            p2_elo_lbl.setAlignment(Qt.AlignCenter)
+            p2_elo_col.addWidget(p2_elo_lbl)
+        else:
+            p2_elo_lbl = QLabel(str(p2_elo))
+            p2_elo_lbl.setStyleSheet(f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 22px; font-weight: bold;")
+            p2_elo_lbl.setAlignment(Qt.AlignCenter)
+            p2_elo_col.addWidget(p2_elo_lbl)
+            p2_change = match_data.get("player_2_elo_change")
+            if p2_change is not None:
+                p2_change_lbl = QLabel(_elo_change_text(p2_change))
+                p2_change_lbl.setStyleSheet(f"background: transparent; color: {p2_change_color}; font-size: 18px; font-weight: bold;")
+                p2_change_lbl.setAlignment(Qt.AlignCenter)
+                p2_elo_col.addWidget(p2_change_lbl)
         layout.addWidget(p2_elo_widget)
         p2_name = _make_name_label(
             match_data.get("player_2_name") or p2_id, p2_color, Qt.AlignRight | Qt.AlignVCenter
         )
         layout.addWidget(p2_name)
-        p2_icon = create_rank_icon(p2_elo, size=24)
-        layout.addWidget(p2_icon)
+        if p2_elo != -1:
+            p2_icon = create_rank_icon(p2_elo, size=24)
+            layout.addWidget(p2_icon)
 
     def mousePressEvent(self, event):
         self.clicked.emit(self._data)
@@ -189,38 +205,51 @@ class MatchHistoryPage(QWidget):
         layout.setContentsMargins(24, 16, 24, 16)
         layout.setSpacing(8)
 
-        # Toggle row — centered, 2x bigger buttons
+        # Top bar: centered toggles with refresh pinned to the right
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(0, 0, 0, 0)
+
+        # Left spacer — mirrors the refresh button width so toggles stay truly centered
+        left_spacer = QWidget()
+        left_spacer.setFixedWidth(100)
+        top_bar.addWidget(left_spacer)
+
+        top_bar.addStretch()
+
         toggle_row = QHBoxLayout()
         toggle_row.setSpacing(0)
-        toggle_row.setAlignment(Qt.AlignCenter)
 
         self._my_btn = QPushButton("My Matches")
         self._my_btn.setCheckable(True)
         self._my_btn.setChecked(True)
-        self._my_btn.setFixedHeight(64)
+        self._my_btn.setFixedHeight(40)
         self._my_btn.setFixedWidth(180)
         self._my_btn.clicked.connect(lambda: self._set_mode(True))
         toggle_row.addWidget(self._my_btn)
 
         self._all_btn = QPushButton("All Matches")
         self._all_btn.setCheckable(True)
-        self._all_btn.setFixedHeight(64)
+        self._all_btn.setFixedHeight(40)
         self._all_btn.setFixedWidth(180)
         self._all_btn.clicked.connect(lambda: self._set_mode(False))
         toggle_row.addWidget(self._all_btn)
 
+        top_bar.addLayout(toggle_row)
+
+        top_bar.addStretch()
+
         refresh_btn = QPushButton("Refresh")
-        refresh_btn.setFixedHeight(64)
-        refresh_btn.setFixedWidth(120)
+        refresh_btn.setFixedHeight(40)
+        refresh_btn.setFixedWidth(100)
         refresh_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {CLR_BUTTON_BG}; color: {CLR_TEXT}; "
-            f"border-radius: 4px; font-weight: bold; font-size: 20px; padding: 0 12px; }}"
+            f"QPushButton {{ background-color: {CLR_BUTTON_BG}; color: {CLR_TEXT_BRIGHT}; "
+            f"border-radius: 4px; font-weight: bold; font-size: 19px; }}"
             f"QPushButton:hover {{ background-color: #3e4278; }}"
         )
         refresh_btn.clicked.connect(self.refresh)
-        toggle_row.addWidget(refresh_btn)
+        top_bar.addWidget(refresh_btn)
 
-        layout.addLayout(toggle_row)
+        layout.addLayout(top_bar)
 
         self._update_toggle_style()
 

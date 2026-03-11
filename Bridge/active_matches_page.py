@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from config import (
     THEME_NAMES, FINISHED_MATCH_DISPLAY_SECONDS,
-    CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_ACTIVE_BTN,
+    CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_ACTIVE_BTN, CLR_UNRANKED,
 )
 from rank_utils import create_rank_icon, apply_rank_label_style
 
@@ -44,20 +44,33 @@ class ActiveMatchToast(QFrame):
         p1_top = QHBoxLayout()
         p1_top.setSpacing(4)
 
-        self._p1_icon = create_rank_icon(d["player_1_elo"], size=24)
-        p1_top.addWidget(self._p1_icon)
+        p1_elo_val = d["player_1_elo"]
+        if p1_elo_val != -1:
+            self._p1_icon = create_rank_icon(p1_elo_val, size=24)
+            p1_top.addWidget(self._p1_icon)
+        else:
+            self._p1_icon = None
 
         self._p1_name = QLabel(d["player_1_name"])
-        apply_rank_label_style(self._p1_name, d["player_1_elo"], 24, "background: transparent;")
+        if p1_elo_val != -1:
+            apply_rank_label_style(self._p1_name, p1_elo_val, 24, "background: transparent;")
+        else:
+            self._p1_name.setStyleSheet(f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 24px; font-weight: bold;")
         self._p1_name.setFixedWidth(140)
         self._p1_name.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         p1_top.addWidget(self._p1_name)
 
-        self._p1_elo = QLabel(str(d["player_1_elo"]))
-        self._p1_elo.setStyleSheet(
-            f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 24px; font-weight: bold;"
-        )
-        self._p1_elo.setFixedWidth(50)
+        if p1_elo_val != -1:
+            self._p1_elo = QLabel(str(p1_elo_val))
+            self._p1_elo.setStyleSheet(
+                f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 24px; font-weight: bold;"
+            )
+        else:
+            self._p1_elo = QLabel("[Unranked]")
+            self._p1_elo.setStyleSheet(
+                f"background: transparent; color: {CLR_UNRANKED}; font-size: 18px; font-weight: bold;"
+            )
+        self._p1_elo.setFixedWidth(80)
         self._p1_elo.setAlignment(Qt.AlignCenter)
         p1_top.addWidget(self._p1_elo)
 
@@ -103,22 +116,35 @@ class ActiveMatchToast(QFrame):
         p2_top = QHBoxLayout()
         p2_top.setSpacing(4)
 
-        self._p2_elo = QLabel(str(d["player_2_elo"]))
-        self._p2_elo.setStyleSheet(
-            f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 24px; font-weight: bold;"
-        )
-        self._p2_elo.setFixedWidth(50)
+        p2_elo_val = d["player_2_elo"]
+        if p2_elo_val != -1:
+            self._p2_elo = QLabel(str(p2_elo_val))
+            self._p2_elo.setStyleSheet(
+                f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 24px; font-weight: bold;"
+            )
+        else:
+            self._p2_elo = QLabel("[Unranked]")
+            self._p2_elo.setStyleSheet(
+                f"background: transparent; color: {CLR_UNRANKED}; font-size: 18px; font-weight: bold;"
+            )
+        self._p2_elo.setFixedWidth(80)
         self._p2_elo.setAlignment(Qt.AlignCenter)
         p2_top.addWidget(self._p2_elo)
 
         self._p2_name = QLabel(d["player_2_name"])
-        apply_rank_label_style(self._p2_name, d["player_2_elo"], 24, "background: transparent;")
+        if p2_elo_val != -1:
+            apply_rank_label_style(self._p2_name, p2_elo_val, 24, "background: transparent;")
+        else:
+            self._p2_name.setStyleSheet(f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 24px; font-weight: bold;")
         self._p2_name.setFixedWidth(140)
         self._p2_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         p2_top.addWidget(self._p2_name)
 
-        self._p2_icon = create_rank_icon(d["player_2_elo"], size=24)
-        p2_top.addWidget(self._p2_icon)
+        if p2_elo_val != -1:
+            self._p2_icon = create_rank_icon(p2_elo_val, size=24)
+            p2_top.addWidget(self._p2_icon)
+        else:
+            self._p2_icon = None
 
         p2_section.addLayout(p2_top)
 
@@ -298,6 +324,15 @@ class ActiveMatchesPage(QWidget):
                 self._list_layout.removeWidget(w)
                 w.deleteLater()
                 break
+        # If any matches remain, the first one must not have a divider above it.
+        # This happens when the original first match (which had no divider) is removed,
+        # leaving the second match's divider stranded at the top.
+        if self._toast_widgets:
+            item = self._list_layout.itemAt(1)  # index 0 is _empty_label
+            if item and item.widget() and item.widget().objectName().startswith("divider_"):
+                w = item.widget()
+                self._list_layout.removeWidget(w)
+                w.deleteLater()
         timer = self._finished_timers.pop(match_id, None)
         if timer:
             timer.stop()

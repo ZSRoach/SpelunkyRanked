@@ -142,6 +142,7 @@ class MainWindow(QMainWindow):
         self._controller.login_success.connect(self._on_login_success)
         self._controller.login_failed.connect(self._on_login_failed)
         self._controller.match_started.connect(self._enter_match_mode)
+        self._controller.match_resumed.connect(self._enter_match_mode)
         self._controller.match_result.connect(self._exit_match_mode)
         self._controller.match_scrapped.connect(self._exit_match_mode)
         self._controller.game_version_mismatch.connect(self._show_game_version_mismatch)
@@ -241,9 +242,8 @@ class MainWindow(QMainWindow):
 
     def _on_ws_reconnected(self):
         self._reconnect_timer.stop()
-        # Only restore UI if we're on the disconnected page
+        self._sidebar.setVisible(True)  # Always restore — disconnect hid it regardless of page
         if self._stack.currentIndex() == self._DISCONNECTED_IDX:
-            self._sidebar.setVisible(True)
             self._stack.setCurrentIndex(self._PROFILE_IDX)
             self._profile_btn.setChecked(True)
             self._controller.refresh_player_data()

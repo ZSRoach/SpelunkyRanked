@@ -71,13 +71,45 @@ def get_matches(player_id: str | None = None, offset: int = 0, limit: int = 10) 
     return resp.json().get("matches", [])
 
 
-def get_leaderboard() -> list[dict]:
-    resp = requests.get(f"{SERVER_URL}/leaderboard", timeout=10)
+def get_seasons() -> dict:
+    resp = requests.get(f"{SERVER_URL}/seasons", timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_leaderboard(season: int | None = None) -> list[dict]:
+    params = {}
+    if season is not None:
+        params["season"] = season
+    resp = requests.get(f"{SERVER_URL}/leaderboard", params=params, timeout=10)
     resp.raise_for_status()
     return resp.json().get("players", [])
 
 
-def get_fastest_times() -> dict:
-    resp = requests.get(f"{SERVER_URL}/leaderboard/fastest", timeout=10)
+def get_fastest_times(season: int | str | None = None) -> dict:
+    params = {}
+    if season is not None:
+        params["season"] = season
+    resp = requests.get(f"{SERVER_URL}/leaderboard/fastest", params=params, timeout=10)
     resp.raise_for_status()
     return resp.json().get("fastest_times", {})
+
+
+def check_active_match(steam_id: str, token: str, ts: int) -> bool:
+    resp = requests.get(
+        f"{SERVER_URL}/matches/mine",
+        params={"steam_id": steam_id, "token": token, "ts": ts},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json().get("active", False)
+
+
+def get_player_season_stats(steam_id: str, season: int) -> dict:
+    resp = requests.get(
+        f"{SERVER_URL}/profile/stats",
+        params={"steam_id": steam_id, "season": season},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()

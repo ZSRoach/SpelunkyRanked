@@ -51,6 +51,7 @@ class UDPRelay(QObject):
     game_request_draw = Signal()
     game_forfeit = Signal()
     game_close_postmatch = Signal()
+    game_rank_reveal_complete = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -88,6 +89,10 @@ class UDPRelay(QObject):
             except Exception:
                 pass
             self._sock = None
+
+    def is_game_connected(self) -> bool:
+        """Return True if the game heartbeat is alive (max 5s stale)."""
+        return self._game_alive
 
     def send_to_game(self, data: dict) -> None:
         """Send a JSON message to the Game's server."""
@@ -188,6 +193,8 @@ class UDPRelay(QObject):
                 self.game_forfeit.emit()
             elif event == "close_postmatch":
                 self.game_close_postmatch.emit()
+            elif event == "rank_reveal_complete":
+                self.game_rank_reveal_complete.emit()
 
     def _ping_loop(self) -> None:
         while self._running:

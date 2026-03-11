@@ -40,7 +40,7 @@ class BridgeController(QObject):
     paired = Signal(dict)           # {opponent_name, opponent_elo, categories, ban_order_first}
     ban_update = Signal(list)       # remaining categories
     match_started = Signal(dict)    # {category, seed}
-    opponent_progress = Signal(int, int) # area, theme
+    opponent_progress = Signal(int, int, int) # area, level, theme
     match_result = Signal(dict)     # {result, match_data}
     match_scrapped = Signal()
 
@@ -50,6 +50,7 @@ class BridgeController(QObject):
     game_connected = Signal()
     game_disconnected = Signal()
     seed_changed = Signal()
+    match_resumed = Signal(dict)    # WS reconnected mid-match within grace window; payload has match state
 
     # ---- Version mismatch signals ----
     bridge_version_mismatch = Signal(str)   # bridge download URL
@@ -68,6 +69,14 @@ class BridgeController(QObject):
         self.match_category: str = ""
         self.match_opponent: str = ""
         self.match_opponent_elo: int = 0
+        self.placements_remaining: int = -1  # -1 = ranked; 9→0 during placements
+        self._rank_reveal_pending: bool = False
+        # Set when WS reconnects while in_match/in_ban_phase; cleared by server-sent
+        # reconnected/match_scrapped. If still set after a timeout, stale state is cleaned up.
+        self._ws_reconnect_pending: bool = False
+        # True after sending game_disconnect to server; cleared when game reconnects
+        # (sends game_reconnected) or server resolves the match.
+        self._game_in_grace: bool = False
 
         # Login token (server-signed, required for all auth requests)
         self._login_token: str = ""
@@ -106,6 +115,12 @@ class BridgeController(QObject):
         self.ws.do_seed_change.connect(self._on_ws_do_seed_change)
         self.ws.receive_draw_request.connect(self._on_ws_receive_draw_request)
         self.ws.postmatch_closed.connect(self._on_ws_postmatch_closed)
+        self.ws.rank_reveal.connect(self._on_ws_rank_reveal)
+        self.ws.opponent_disconnected.connect(self._on_ws_opponent_disconnected)
+        self.ws.opponent_reconnected.connect(self._on_ws_opponent_reconnected)
+        self.ws.reconnected.connect(self._on_ws_reconnected)
+        self.ws.auto_forfeit.connect(self._on_ws_auto_forfeit)
+        self.ws.verify_winner_connection.connect(self._on_ws_verify_winner_connection)
 
         # Wire UDP signals → WS relay
         self.udp.game_queue_ready.connect(self._on_game_queue_ready)
@@ -123,6 +138,7 @@ class BridgeController(QObject):
         self.udp.game_request_draw.connect(self._on_game_request_draw)
         self.udp.game_forfeit.connect(self._on_game_forfeit)
         self.udp.game_close_postmatch.connect(self._on_game_close_postmatch)
+        self.udp.game_rank_reveal_complete.connect(self._on_game_rank_reveal_complete)
 
     # ---- Public API ----
 
@@ -164,6 +180,7 @@ class BridgeController(QObject):
                     self._login_ts = ts
                     self.player_name = data.get("player_name", "")
                     self.player_data = data
+                    self.placements_remaining = data.get("placements_remaining", -1)
                     self.login_success.emit(data)
             except requests.HTTPError as e:
                 if e.response is not None and e.response.status_code == 403:
@@ -236,9 +253,12 @@ class BridgeController(QObject):
         self.match_category = ""
         self.match_opponent = ""
         self.match_opponent_elo = 0
+        self.placements_remaining = -1
+        self._rank_reveal_pending = False
         self._login_token = ""
         self._login_ts = 0
         self._pending_match_disconnect = False
+        self._game_in_grace = False
 
     def start_active_matches_polling(self) -> None:
         """Immediately poll active matches, then repeat every QUEUE_POLL_INTERVAL."""
@@ -276,6 +296,7 @@ class BridgeController(QObject):
                 data = api_client.login(self.steam_id, token, ts)
                 if not data.get("new_player"):
                     self.player_data = data
+                    self.placements_remaining = data.get("placements_remaining", -1)
                     self.player_data_refreshed.emit(data)
             except Exception:
                 pass
@@ -325,6 +346,25 @@ class BridgeController(QObject):
         if self._pending_match_disconnect:
             self._pending_match_disconnect = False
             self.ws.send_game_disconnect()
+            if self.in_match or self.in_ban_phase:
+                if self.udp.is_game_connected():
+                    # Game already reconnected while WS was down — notify server now.
+                    self.ws.send_game_reconnected()
+                else:
+                    self._game_in_grace = True
+        elif self.in_match or self.in_ban_phase:
+            # WS reconnected while a match was still active on the bridge side.
+            # Wait for the server to tell us the outcome — it will send either
+            # `reconnected` (live match resumed via grace period) or `match_scrapped`
+            # (scrap path). Only if neither arrives within 8 seconds do we self-correct,
+            # which covers the rare case where the WS was down >5 min and the server
+            # already cleaned up without anything left in its pending-reconnect dicts.
+            log.warning(
+                "WS reconnected with active match state (in_match=%s in_ban_phase=%s) — waiting for server",
+                self.in_match, self.in_ban_phase,
+            )
+            self._ws_reconnect_pending = True
+            QTimer.singleShot(8000, self._check_stale_match_state)
         # Issue 1: if the server removed us from the queue during a WS blip, re-join
         if self.in_queue:
             log.info("WS reconnected while in_queue=True — re-joining queue for %s", self.steam_id)
@@ -356,15 +396,93 @@ class BridgeController(QObject):
             QTimer.singleShot(5000, self._attempt_ws_reconnect)
 
     def _attempt_ws_reconnect(self) -> None:
-        if self.steam_id and not self._ws_intentional_disconnect:
-            log.info("Attempting WS reconnect for %s", self.steam_id)
-            self.ws.reconnect()
+        if not self.steam_id or self._ws_intentional_disconnect:
+            return
+
+        def _check_and_reconnect():
+            # Re-validate bridge version before reconnecting — server may have been
+            # updated during the outage. If mismatched, stop and prompt for update.
+            # If the HTTP call itself fails, proceed anyway; the WS connect will
+            # fail and schedule another retry if the server is still unreachable.
+            try:
+                version_info = api_client.get_server_version()
+                server_version = version_info.get("version", 0.0)
+                self._server_version = server_version
+                self._game_mod_download_url = version_info.get("game_mod_download_url", "")
+                if BRIDGE_VERSION != server_version:
+                    log.warning(
+                        "Bridge version mismatch on reconnect (bridge=%.2f server=%.2f) — stopping",
+                        BRIDGE_VERSION, server_version,
+                    )
+                    self._ws_intentional_disconnect = True
+                    self.bridge_version_mismatch.emit(version_info.get("bridge_download_url", ""))
+                    return
+            except Exception as e:
+                log.warning("Version check on reconnect failed (%s) — proceeding", e)
+
+            if not self._ws_intentional_disconnect:
+                log.info("Attempting WS reconnect for %s", self.steam_id)
+                self.ws.reconnect()
+
+        threading.Thread(target=_check_and_reconnect, daemon=True).start()
+
+    def _check_stale_match_state(self) -> None:
+        """Fallback: if the server hasn't resolved our match state 8s after WS reconnect,
+        query the server to see if the match is still active. If not, exit match mode
+        and notify the game. Never self-scrap or send game_disconnect from here."""
+        if not self._ws_reconnect_pending:
+            return  # Already resolved by server-sent event
+        if not (self.in_match or self.in_ban_phase):
+            self._ws_reconnect_pending = False
+            return  # Match was already resolved by a handler (e.g. auto_forfeit)
+        self._ws_reconnect_pending = False
+        log.warning(
+            "No server response after WS reconnect (in_match=%s in_ban_phase=%s) — querying server",
+            self.in_match, self.in_ban_phase,
+        )
+        threading.Thread(target=self._query_active_match, args=(1,), daemon=True).start()
+
+    def _query_active_match(self, attempt: int) -> None:
+        """Query the server for an active match. If none found, exit match mode.
+        Retries up to 3 times (10s apart) if the server reports active (should be impossible)."""
+        try:
+            active = api_client.check_active_match(self.steam_id, self._login_token, self._login_ts)
+        except Exception as e:
+            log.error("check_active_match failed (attempt %d) — staying in match mode: %s", attempt, e)
+            return
+        if not active:
+            log.warning(
+                "Server has no active match for %s (attempt %d) — exiting match mode, notifying game",
+                self.steam_id, attempt,
+            )
+            self.in_match = False
+            self.in_ban_phase = False
+            self.udp.send_to_game({"event": "match_not_found"})
+        elif attempt < 3:
+            log.warning(
+                "Server still reports active match for %s (attempt %d) — retrying in 10s",
+                self.steam_id, attempt,
+            )
+            t = threading.Timer(10, self._query_active_match, args=(attempt + 1,))
+            t.daemon = True
+            t.start()
+        else:
+            log.error(
+                "Server still reports active match for %s after %d attempts — giving up, waiting for server resolution",
+                self.steam_id, attempt,
+            )
 
     # ---- Game version check ----
 
     def _on_game_connected(self) -> None:
-        """When the game connects, request its version."""
+        """When the game connects over UDP, check if we're in a server grace window."""
         log.info("Game connected over UDP")
+        if self._game_in_grace:
+            self._game_in_grace = False
+            log.info("Game reconnected during server grace — notifying server")
+            self.ws.send_game_reconnected()
+            self.game_connected.emit()
+            return  # Skip version check; match is resuming via server
         self.game_connected.emit()
         self.udp.request_game_version()
 
@@ -407,13 +525,14 @@ class BridgeController(QObject):
         if self.in_queue:
             self._leave_queue()
         if self.in_match or self.in_ban_phase:
-            self.in_match = False
-            self.in_ban_phase = False
-            if not self.ws.send_game_disconnect():
-                # WS is currently down — flag for retry on reconnect so the
-                # server can still scrap the match and notify the opponent.
+            # Notify the server immediately so it can start its grace period
+            # and inform the opponent. Bridge stays in match mode and waits
+            # for the game to reconnect or the server to resolve the match.
+            if self.ws.send_game_disconnect():
+                self._game_in_grace = True
+            else:
+                # WS is down — send on reconnect; _on_ws_connected handles _game_in_grace.
                 self._pending_match_disconnect = True
-            self.match_scrapped.emit()
         self.game_disconnected.emit()
 
     def _leave_queue(self) -> None:
@@ -463,6 +582,7 @@ class BridgeController(QObject):
         self.in_queue = False
         self.in_ban_phase = True
         self.match_opponent = data.get("opponent_name", "")
+        # -1 means the opponent is unranked; store as-is so UI can display "[Unranked]"
         self.match_opponent_elo = data.get("opponent_elo", 0)
         self.udp.send_to_game({"event": "paired", **data})
         self.paired.emit(data)
@@ -481,20 +601,29 @@ class BridgeController(QObject):
         self.udp.send_critical({"event": "match_start", **data})
         self.match_started.emit(data)
 
-    def _on_ws_opponent_progress(self, area: int, theme: int) -> None:
-        self.udp.send_to_game({"event": "opponent_progress", "area": area, "theme": theme})
-        self.opponent_progress.emit(area, theme)
+    def _on_ws_opponent_progress(self, area: int, level: int, theme: int) -> None:
+        self.udp.send_to_game({"event": "opponent_progress", "area": area, "level": level, "theme": theme})
+        self.opponent_progress.emit(area, level, theme)
 
     def _on_ws_match_result(self, data: dict) -> None:
+        self._ws_reconnect_pending = False
+        self._game_in_grace = False
         log.info("WS: match_result — result=%s elo_change=%s", data.get("result"), data.get("elo_change"))
         self.in_match = False
         self.in_ban_phase = False
-        # Send the result string and elo change to the Game, not the full match record
-        self.udp.send_critical({
+        placements_remaining = data.get("placements_remaining", -1)
+        self.placements_remaining = placements_remaining
+        if placements_remaining == 0:
+            self._rank_reveal_pending = True
+        # Send result to game; include placements_remaining so the game can display it
+        udp_payload: dict = {
             "event": "match_result",
             "result": data.get("result", ""),
             "elo_change": data.get("elo_change", 0),
-        })
+        }
+        if placements_remaining >= 0:
+            udp_payload["placements_remaining"] = placements_remaining
+        self.udp.send_critical(udp_payload)
         # Cache the match
         match_data = data.get("match_data")
         if match_data:
@@ -504,12 +633,16 @@ class BridgeController(QObject):
         self.match_result.emit(data)
 
     def _on_ws_match_scrapped(self) -> None:
+        self._ws_reconnect_pending = False
+        self._game_in_grace = False
         self.in_match = False
         self.in_ban_phase = False
         self.udp.send_to_game({"event": "match_scrapped"})
         self.match_scrapped.emit()
 
     def _on_game_send_chat(self, message: str) -> None:
+        if not self.in_match and not self.in_ban_phase:
+            return
         self.ws.send_chat(message)
 
     def _on_ws_receive_chat(self, message: str, sender_name: str) -> None:
@@ -533,6 +666,18 @@ class BridgeController(QObject):
     def _on_game_close_postmatch(self) -> None:
         self.ws.send_close_postmatch()
 
+    def _on_ws_rank_reveal(self, data: dict) -> None:
+        """Server fires this after the postmatch window closes on the 10th placement match."""
+        log.info("WS: rank_reveal — elo=%s rank=%s", data.get("elo"), data.get("rank_name"))
+        self.udp.send_critical({"event": "rank_reveal", "elo": data.get("elo"), "rank_name": data.get("rank_name")})
+
+    def _on_game_rank_reveal_complete(self) -> None:
+        """Game has finished the rank reveal animation; acknowledge and navigate to profile."""
+        log.info("UDP: rank_reveal_complete from game")
+        self._rank_reveal_pending = False
+        self.ws.send_rank_reveal_complete()
+        self.refresh_player_data()
+
     def _on_ws_postmatch_closed(self) -> None:
         self.udp.send_to_game({"event": "postmatch_closed"})
 
@@ -545,3 +690,42 @@ class BridgeController(QObject):
 
     def _on_ws_receive_draw_request(self) -> None:
         self.udp.send_to_game({"event": "receive_draw_request"})
+
+    def _on_ws_opponent_disconnected(self) -> None:
+        self.udp.send_to_game({"event": "opponent_disconnected"})
+
+    def _on_ws_opponent_reconnected(self) -> None:
+        self.udp.send_to_game({"event": "opponent_reconnected"})
+
+    def _on_ws_reconnected(self, data: dict) -> None:
+        self._ws_reconnect_pending = False
+        self.in_match = True
+        if data.get("opponent_name"):
+            self.match_opponent = data["opponent_name"]
+            self.match_opponent_elo = data.get("opponent_elo", self.match_opponent_elo)
+        if data.get("category"):
+            self.match_category = data["category"]
+        self.udp.send_to_game({"event": "reconnected", **data})
+        self.match_resumed.emit(data)
+
+    def _on_ws_verify_winner_connection(self) -> None:
+        """Server asks if bridge and game are both connected (post-grace verification)."""
+        if self.udp.is_game_connected():
+            self.ws.send_winner_connection_verified()
+        else:
+            self.ws.send_winner_connection_failed()
+
+    def _on_ws_auto_forfeit(self, data: dict) -> None:
+        self._ws_reconnect_pending = False
+        self._game_in_grace = False
+        self.in_match = False
+        self.in_ban_phase = False
+        placements_remaining = data.get("placements_remaining", -1)
+        if placements_remaining is not None and placements_remaining >= 0:
+            self.placements_remaining = placements_remaining
+        self.udp.send_critical({
+            "event": "auto_forfeit",
+            "elo_change": data.get("elo_change", 0),
+            "placements_remaining": data.get("placements_remaining"),
+        })
+        self.refresh_player_data()

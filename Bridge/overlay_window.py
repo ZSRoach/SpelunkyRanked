@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 
 import settings_store
 from rank_utils import get_rank_icon_path
-from config import THEME_NAMES
+from config import THEME_NAMES, CLR_UNRANKED
 
 # Resize handle size in pixels
 RESIZE_MARGIN = 8
@@ -42,6 +42,7 @@ class OverlayWindow(QWidget):
         # Connect signals
         self._controller.opponent_progress.connect(self._on_progress)
         self._controller.match_started.connect(self._on_match_start)
+        self._controller.match_resumed.connect(self._on_match_resumed)
         self._controller.match_result.connect(lambda _: self._reset())
         self._controller.match_scrapped.connect(self._reset)
         self._controller.seed_changed.connect(self._on_seed_changed)
@@ -154,12 +155,17 @@ class OverlayWindow(QWidget):
                 self._opponent_icon.setFixedSize(icon_size, icon_size)
                 # Re-apply icon at new size
                 elo = self._controller.match_opponent_elo if self._controller.in_match else 200
-                path = get_rank_icon_path(elo)
-                pixmap = QPixmap(path)
-                if not pixmap.isNull():
-                    self._opponent_icon.setPixmap(
-                        pixmap.scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    )
+                if elo == -1:
+                    self._opponent_icon.clear()
+                    self._opponent_icon.setVisible(False)
+                else:
+                    self._opponent_icon.setVisible(True)
+                    path = get_rank_icon_path(elo)
+                    pixmap = QPixmap(path)
+                    if not pixmap.isNull():
+                        self._opponent_icon.setPixmap(
+                            pixmap.scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        )
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -184,13 +190,18 @@ class OverlayWindow(QWidget):
         self._update_font_sizes()
 
     def _update_opponent_icon(self, elo: int):
-        """Update the rank icon for the opponent's elo."""
-        path = get_rank_icon_path(elo)
-        pixmap = QPixmap(path)
-        if not pixmap.isNull():
-            self._opponent_icon.setPixmap(
-                pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
+        """Update the rank icon for the opponent's elo. -1 means unranked (hide icon)."""
+        if elo == -1:
+            self._opponent_icon.clear()
+            self._opponent_icon.setVisible(False)
+        else:
+            self._opponent_icon.setVisible(True)
+            path = get_rank_icon_path(elo)
+            pixmap = QPixmap(path)
+            if not pixmap.isNull():
+                self._opponent_icon.setPixmap(
+                    pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
 
     def set_always_on_top(self, enabled: bool) -> None:
         visible = self.isVisible()
@@ -216,6 +227,21 @@ class OverlayWindow(QWidget):
         self._update_opponent_icon(elo)
         self._category_label.setText(data.get("category", "—"))
         self._progress_label.setText("Started Match")
+        self._apply_bg_color()
+        self._update_font_sizes()
+
+    def _on_match_resumed(self, data: dict):
+        opponent = data.get("opponent_name") or self._controller.match_opponent
+        elo = data.get("opponent_elo", self._controller.match_opponent_elo)
+        self._opponent_label.setText(opponent)
+        self._update_opponent_icon(elo)
+        self._category_label.setText(data.get("category") or self._controller.match_category or "—")
+        theme = data.get("theme", 0)
+        if theme and theme != 1:
+            area_name = THEME_NAMES.get(theme, f"Area {data.get('level', '?')}")
+            self._progress_label.setText(f"Entered {area_name}")
+        else:
+            self._progress_label.setText("Started Match")
         self._apply_bg_color()
         self._update_font_sizes()
 

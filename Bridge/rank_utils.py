@@ -12,6 +12,11 @@ from PySide6.QtWidgets import QApplication, QLabel
 from config import RANK_THRESHOLDS, ASSETS_DIR, RANK_COLORS, COSMIC_GRADIENT
 
 
+def is_placement(player_data: dict) -> bool:
+    """Return True if the player has not yet completed all placement matches."""
+    return not player_data.get("is_ranked", True)
+
+
 def get_rank_name(elo: int) -> str:
     """Return rank name for the given elo."""
     for name, min_elo, max_elo in RANK_THRESHOLDS:

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from rank_utils import create_rank_icon, get_rank_icon_path
-from config import CLR_WIDGET_BG, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_ACTIVE_BTN, CLR_BUTTON_BG, CLR_MAIN_BG, RANK_COLORS, format_time, full_match_datetime
+from config import CLR_WIDGET_BG, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_ACTIVE_BTN, CLR_BUTTON_BG, CLR_MAIN_BG, CLR_UNRANKED, RANK_COLORS, format_time, full_match_datetime
 
 
 def _elo_change_text(change: int) -> str:
@@ -433,38 +433,48 @@ class MatchDetailPage(QWidget):
         p2_name = match_data.get("player_2_name") or p2
 
         _apply_name_style(self._p1_label, p1_name, p1_color)
-        self._p1_elo_label.setText(str(p1_elo))
-        p1_elo_change = match_data.get("player_1_elo_change")
-        if p1_elo_change is not None:
-            self._p1_elo_change_label.setText(_elo_change_text(p1_elo_change))
-            self._p1_elo_change_label.setStyleSheet(f"color: {p1_change_color}; font-size: 18px; font-weight: bold;")
-            self._p1_elo_change_label.setVisible(True)
-        else:
+        if p1_elo == -1:
+            self._p1_elo_label.setText("[Unranked]")
+            self._p1_elo_label.setStyleSheet(f"color: {CLR_UNRANKED}; font-size: 18px; font-weight: bold;")
             self._p1_elo_change_label.setVisible(False)
-
-        # Update P1 rank icon
-        p1_pixmap = QPixmap(get_rank_icon_path(p1_elo))
-        if not p1_pixmap.isNull():
-            self._p1_icon.setPixmap(
-                p1_pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
+            self._p1_icon.clear()
+        else:
+            self._p1_elo_label.setText(str(p1_elo))
+            self._p1_elo_label.setStyleSheet(f"color: {CLR_TEXT_BRIGHT}; font-size: 22px; font-weight: bold;")
+            p1_elo_change = match_data.get("player_1_elo_change")
+            if p1_elo_change is not None:
+                self._p1_elo_change_label.setText(_elo_change_text(p1_elo_change))
+                self._p1_elo_change_label.setStyleSheet(f"color: {p1_change_color}; font-size: 18px; font-weight: bold;")
+                self._p1_elo_change_label.setVisible(True)
+            else:
+                self._p1_elo_change_label.setVisible(False)
+            p1_pixmap = QPixmap(get_rank_icon_path(p1_elo))
+            if not p1_pixmap.isNull():
+                self._p1_icon.setPixmap(
+                    p1_pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
 
         _apply_name_style(self._p2_label, p2_name, p2_color)
-        self._p2_elo_label.setText(str(p2_elo))
-        p2_elo_change = match_data.get("player_2_elo_change")
-        if p2_elo_change is not None:
-            self._p2_elo_change_label.setText(_elo_change_text(p2_elo_change))
-            self._p2_elo_change_label.setStyleSheet(f"color: {p2_change_color}; font-size: 18px; font-weight: bold;")
-            self._p2_elo_change_label.setVisible(True)
-        else:
+        if p2_elo == -1:
+            self._p2_elo_label.setText("[Unranked]")
+            self._p2_elo_label.setStyleSheet(f"color: {CLR_UNRANKED}; font-size: 18px; font-weight: bold;")
             self._p2_elo_change_label.setVisible(False)
-
-        # Update P2 rank icon
-        p2_pixmap = QPixmap(get_rank_icon_path(p2_elo))
-        if not p2_pixmap.isNull():
-            self._p2_icon.setPixmap(
-                p2_pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
+            self._p2_icon.clear()
+        else:
+            self._p2_elo_label.setText(str(p2_elo))
+            self._p2_elo_label.setStyleSheet(f"color: {CLR_TEXT_BRIGHT}; font-size: 22px; font-weight: bold;")
+            p2_elo_change = match_data.get("player_2_elo_change")
+            if p2_elo_change is not None:
+                self._p2_elo_change_label.setText(_elo_change_text(p2_elo_change))
+                self._p2_elo_change_label.setStyleSheet(f"color: {p2_change_color}; font-size: 18px; font-weight: bold;")
+                self._p2_elo_change_label.setVisible(True)
+            else:
+                self._p2_elo_change_label.setVisible(False)
+            p2_pixmap = QPixmap(get_rank_icon_path(p2_elo))
+            if not p2_pixmap.isNull():
+                self._p2_icon.setPixmap(
+                    p2_pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
 
         self._cat_label.setText(category)
         self._time_label.setText(format_time(comp_time) if comp_time else "—")
