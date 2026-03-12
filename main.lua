@@ -1,6 +1,6 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.11',
+    version = '1.12',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -2109,7 +2109,7 @@ function determineCheckpoint()
     local ind = getLevelIndex(furthestLevel[1], furthestLevel[2])
     table.insert(warpTo,levelOrder[ind-3][1])
     table.insert(warpTo,levelOrder[ind-3][2])
-    warpIndex = i-3
+    warpIndex = ind-3
     if not warpTo then
         warpTo = {1,1}
         warpIndex = 1
