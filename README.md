@@ -57,7 +57,7 @@ S2Ranked uses **Steam OpenID** to log in and register players. Steam does not se
 
 ### 1. Queue for a Match
 
-Interact with the sign in the Camp and press the queue button. You're free to walk around, or play a run while waiting for a match to be found. **S2Ranked must be open!** 
+Interact with the sign in the Camp and press the queue button. You're free to walk around, or play a run while waiting for a match to be found. **S2Ranked must be open!**
 The server will attempt to pair players together based off of rank proximity and time spent in queue. The longer a player queues, the further their possible queue range is expanded. This may lead to unfair matches, but may also be better for queue times. This process also subject to change in future updates.
 
 ### 2. Category Ban Process
@@ -69,17 +69,17 @@ Both players receive the same set of **5 randomly selected categories** from the
 **Deaths & Resets**
 Progress is saved on every level. On death, instant restart, or category rule violation, players are returned to **three levels before their furthest point of progression**.
 
-*Example: A death on 7-4 sends you back to 7-1. If you then die on 7-2, you're sent back to 7-1 again.*
+_Example: A death on 7-4 sends you back to 7-1. If you then die on 7-2, you're sent back to 7-1 again._
 
 **Mid Match Actions**
 Opening the pause menu during a match shows a sidebar with four options:
 
-| Button | Action |
-|--------|--------|
-| 1 | Fully reset the seed and all saved progress |
-| 2 | Request a seed change *(requires mutual agreement)* |
-| 3 | Request a draw *(requires mutual agreement)* |
-| 4 | Forfeit the match |
+| Button | Action                                              |
+| ------ | --------------------------------------------------- |
+| 1      | Fully reset the seed and all saved progress         |
+| 2      | Request a seed change _(requires mutual agreement)_ |
+| 3      | Request a draw _(requires mutual agreement)_        |
+| 4      | Forfeit the match                                   |
 
 The player can also send **in-game messages to their opponent.** These messages can be toggled on/off on the main menu, along with a few other settings. There is currently no filter in place, so use at your discretion. Reports of misuse will result in administrative action.
 
@@ -96,24 +96,24 @@ Players who disconnect during a match will have 30 seconds to reconnect before t
 
 ## Categories
 
-> *The full category list is subject to change, but currently these are implemented. Category rules can be viewed at [mossranking.com](https://mossranking.com/categories.php?no_game=3).*
+> _The full category list is subject to change, but currently these are implemented. Category rules can be viewed at [mossranking.com](https://mossranking.com/categories.php?no_game=3)._
 
-| Category |
-|----------|
-| Any% |
-| Sunken City% |
-| Low% |
-| Low% J/T |
-| No TP Any% |
+| Category           |
+| ------------------ |
+| Any%               |
+| Sunken City%       |
+| Low%               |
+| Low% J/T           |
+| No TP Any%         |
 | No TP Sunken City% |
-| No TP Eggplant% |
-| No Gold Low% |
-| Abzu% |
-| Duat% |
-| No TP Abzu% |
-| No TP Duat% |
-| No TP No Gold |
-| Cosmic Ocean% |
+| No TP Eggplant%    |
+| No Gold Low%       |
+| Abzu%              |
+| Duat%              |
+| No TP Abzu%        |
+| No TP Duat%        |
+| No TP No Gold      |
+| Cosmic Ocean%      |
 
 ---
 
@@ -121,14 +121,15 @@ Players who disconnect during a match will have 30 seconds to reconnect before t
 
 > Elo gains and losses from a match are determined by a number of factors, including opponent elo, and match completion time.
 
-| Rank | Elo Range |
-|------|-----------|
-| Gold | 0 – 299 |
-| Emerald | 300 – 599 |
-| Sapphire | 600 – 899 |
-| Ruby | 900 – 1,199 |
-| Diamond | 1,200 – 1,599 |
-| Cosmic | 1,600+ |
+| Rank     | Elo Range     |
+| -------- | ------------- |
+| Gold     | 0 – 299       |
+| Emerald  | 300 – 599     |
+| Sapphire | 600 – 899     |
+| Ruby     | 900 – 1,199   |
+| Diamond  | 1,200 – 1,599 |
+| Cosmic   | 1,600+        |
 
 ## Download and Install Process
+
 Download and install [Modlunky](https://github.com/spelunky-fyi/modlunky2/releases). Then download `S2Ranked.zip` and `Spelunky Ranked.zip` from the releases page. Place the files from `Spelunky Ranked.zip` into the `/Spelunky 2/Mods/Packs/Spelunky Ranked/` folder. You can place the `S2Ranked.zip` files anywhere you'd like, really, but I recommend `/Spelunky 2/S2Ranked/` for ease of access. In `/S2Ranked/`, run `setup.bat` as an administrator, and then launch S2Ranked.exe. Once you login, **close the app, and relaunch.** The connection between the game and the app doesn't seem to take before the second launch of the app. Then launch Modlunky, and enable the mod from the Playlunky tab. I recommend using the Playlunky save as to not affect your existing player profile. **Also if your playlunky save is fresh, you may want to copy your normal save and use that as the playlunky save too. Just rename a copy to `savegame.sav.pl`**. Make sure speedrun mode is **OFF** or the mod will not work properly. Launch the game and `S2Ranked.exe`, and happy queueing!
