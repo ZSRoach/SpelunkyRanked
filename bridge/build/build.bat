@@ -1,9 +1,9 @@
 @echo off
 REM Build script for Windows
-REM Requires Python 3.10+ installed (not Windows Store version)
+REM Requires uv installed
 
 echo Building S2Ranked Bridge...
-python build_bridge.py
+uv run build_bridge.py
 
 if %ERRORLEVEL% NEQ 0 (
     echo Build failed!
@@ -12,5 +12,5 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
-echo Build complete! Check the executables folder.
+echo Build complete! Check the dist folder.
 pause

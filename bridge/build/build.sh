@@ -1,9 +1,9 @@
 #!/bin/bash
 # Build script for Linux/macOS
-# Requires Python 3.10+ with shared library support
+# Requires uv
 
 echo "Building S2Ranked Bridge..."
-python3 build_bridge.py
+uv run build_bridge.py
 
 if [ $? -ne 0 ]; then
     echo "Build failed!"
@@ -11,4 +11,4 @@ if [ $? -ne 0 ]; then
 fi
 
 echo ""
-echo "Build complete! Check the executables folder."
+echo "Build complete! Check the dist folder."
