@@ -1,7 +1,7 @@
 # Compiled Lua sources
 luac.out
 
-Bridge/__pycache__
+bridge/__pycache__/
 *.spec
 
 # luarocks build files
