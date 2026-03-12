@@ -13,12 +13,14 @@ bridge/src/__pycache__/
 # PyInstaller Work Dir
 bridge/build/pyinstaller/
 
-# PyInstaller Output
+# Build Output
 bridge/dist/
+dist/
 
 # Compiled Lua sources
 luac.out
 
+# PyInstaller spec
 *.spec
 
 # luarocks build files
