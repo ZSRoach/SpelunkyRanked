@@ -133,3 +133,31 @@ Players who disconnect during a match will have 30 seconds to reconnect before t
 ## Download and Install Process
 
 Download and install [Modlunky](https://github.com/spelunky-fyi/modlunky2/releases). Then download `S2Ranked.zip` and `Spelunky Ranked.zip` from the releases page. Place the files from `Spelunky Ranked.zip` into the `/Spelunky 2/Mods/Packs/Spelunky Ranked/` folder. You can place the `S2Ranked.zip` files anywhere you'd like, really, but I recommend `/Spelunky 2/S2Ranked/` for ease of access. In `/S2Ranked/`, run `setup.bat` as an administrator, and then launch S2Ranked.exe. Once you login, **close the app, and relaunch.** The connection between the game and the app doesn't seem to take before the second launch of the app. Then launch Modlunky, and enable the mod from the Playlunky tab. I recommend using the Playlunky save as to not affect your existing player profile. **Also if your playlunky save is fresh, you may want to copy your normal save and use that as the playlunky save too. Just rename a copy to `savegame.sav.pl`**. Make sure speedrun mode is **OFF** or the mod will not work properly. Launch the game and `S2Ranked.exe`, and happy queueing!
+
+## Development
+
+### Requirements
+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+
+### Running the bridge
+
+```bash
+cd bridge
+uv run src/app.py
+```
+
+### Building
+
+To build the bridge executable and setup script, then zip those and the mod files into `dist/`:
+
+```bash
+uv run build.py
+```
+
+To build just the bridge executable and setup script into `dist/S2Ranked`:
+
+```bash
+cd bridge
+uv run build_bridge.py
+```
