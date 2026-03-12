@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-BRIDGE_DIR = Path(__file__).parent
+BRIDGE_DIR = Path(__file__).parent.parent
 SRC_DIR = BRIDGE_DIR / "src"
 ASSETS_DIR = SRC_DIR / "assets"
 DIST_DIR = BRIDGE_DIR / "dist"
