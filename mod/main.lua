@@ -2109,7 +2109,7 @@ function determineCheckpoint()
     local ind = getLevelIndex(furthestLevel[1], furthestLevel[2])
     table.insert(warpTo,levelOrder[ind-3][1])
     table.insert(warpTo,levelOrder[ind-3][2])
-    warpIndex = i-3
+    warpIndex = ind-3
     if not warpTo then
         warpTo = {1,1}
         warpIndex = 1
