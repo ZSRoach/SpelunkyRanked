@@ -10,3 +10,8 @@ dependencies = [
     "requests",
     "pywin32",
 ]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.19.0",
+]

@@ -10,6 +10,12 @@ bridge/src/match_cache.json
 # pycache
 bridge/src/__pycache__/
 
+# PyInstaller Work Dir
+bridge/build/pyinstaller/
+
+# PyInstaller Output
+bridge/dist/
+
 # Compiled Lua sources
 luac.out
 

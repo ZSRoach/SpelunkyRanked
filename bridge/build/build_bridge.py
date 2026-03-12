@@ -1,30 +1,19 @@
 #!/usr/bin/env python3
 """Build script to create the S2Ranked Bridge executable.
 
-Run this script from a Python environment with PyInstaller installed.
-On Windows, use a standard Python installation (not from Windows Store).
-
 Usage:
-    python build_bridge.py
+    uv run build_bridge.py
 """
 
 import os
 import subprocess
 import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXECUTABLES_DIR = os.path.join(ROOT_DIR, "executables")
-BUILD_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-def ensure_pyinstaller():
-    """Ensure PyInstaller is installed."""
-    try:
-        import PyInstaller
-        print(f"PyInstaller version: {PyInstaller.__version__}")
-    except ImportError:
-        print("Installing PyInstaller...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
+BRIDGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(BRIDGE_DIR, "src")
+ASSETS_DIR = os.path.join(SRC_DIR, "assets")
+DIST_DIR = os.path.join(BRIDGE_DIR, "dist")
+PYINSTALLER_DIR = os.path.join(BRIDGE_DIR, "build", "pyinstaller")
 
 
 def build_bridge():
@@ -33,15 +22,7 @@ def build_bridge():
     print("Building S2Ranked Application...")
     print("=" * 50)
 
-    bridge_dir = os.path.join(ROOT_DIR, "Bridge")
-
-    # Install Bridge dependencies
-    requirements = os.path.join(bridge_dir, "requirements.txt")
-    if os.path.exists(requirements):
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", requirements])
-
-    assets_dir = os.path.join(bridge_dir, "assets")
-    icon_path = os.path.join(assets_dir, "appicon.ico")
+    icon_path = os.path.join(ASSETS_DIR, "appicon.ico")
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -49,10 +30,10 @@ def build_bridge():
         "--onedir",
         "--noconsole",
         "--icon", icon_path,
-        "--add-data", f"{assets_dir}{os.pathsep}assets",
-        "--distpath", EXECUTABLES_DIR,
-        "--workpath", os.path.join(BUILD_DIR, "bridge"),
-        "--specpath", BUILD_DIR,
+        "--add-data", f"{ASSETS_DIR}{os.pathsep}assets",
+        "--distpath", DIST_DIR,
+        "--workpath", PYINSTALLER_DIR,
+        "--specpath", PYINSTALLER_DIR,
         "--clean",
         "--noconfirm",
         # Hidden imports for PySide6 and socketio
@@ -66,13 +47,13 @@ def build_bridge():
         "--hidden-import", "win32crypt",
         "--hidden-import", "win32api",
         "--hidden-import", "pywintypes",
-        os.path.join(bridge_dir, "app.py"),
+        os.path.join(SRC_DIR, "app.py"),
     ]
 
-    subprocess.check_call(cmd, cwd=bridge_dir)
+    subprocess.check_call(cmd, cwd=BRIDGE_DIR)
 
     # Create firewall setup batch file in the output directory
-    setup_bat_path = os.path.join(EXECUTABLES_DIR, "S2Ranked", "setup.bat")
+    setup_bat_path = os.path.join(DIST_DIR, "S2Ranked", "setup.bat")
     setup_bat_content = (
         '@echo off\n'
         '\n'
@@ -127,9 +108,7 @@ def main():
     print("=" * 50)
 
     # Create output directories
-    os.makedirs(EXECUTABLES_DIR, exist_ok=True)
-
-    ensure_pyinstaller()
+    os.makedirs(DIST_DIR, exist_ok=True)
 
     try:
         build_bridge()
@@ -140,7 +119,7 @@ def main():
     print("\n" + "=" * 50)
     print("BUILD COMPLETE!")
     print("=" * 50)
-    print(f"\nExecutable is in: {EXECUTABLES_DIR}")
+    print(f"\nExecutable is in: {DIST_DIR}")
     print("  - S2Ranked/S2Ranked(.exe)")
 
 
