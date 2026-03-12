@@ -1,7 +1,18 @@
+# Log
+bridge/src/bridge.log
+
+# Settings
+bridge/src/settings.json
+
+# Match cache
+bridge/src/match_cache.json
+
+# pycache
+bridge/src/__pycache__/
+
 # Compiled Lua sources
 luac.out
 
-bridge/__pycache__/
 *.spec
 
 # luarocks build files
