@@ -4,7 +4,7 @@ import os
 import sys
 
 # Bridge version — must match server VERSION (float)
-BRIDGE_VERSION = 1.11
+BRIDGE_VERSION = 1.12
 
 # Server connection — HTTPS is always enforced even if the env var is set to http://
 def _ensure_https(url: str) -> str:
