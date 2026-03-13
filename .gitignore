@@ -1,7 +1,26 @@
+# Log
+bridge/src/bridge.log
+
+# Settings
+bridge/src/settings.json
+
+# Match cache
+bridge/src/match_cache.json
+
+# pycache
+bridge/src/__pycache__/
+
+# PyInstaller Work Dir
+bridge/build/pyinstaller/
+
+# Build Output
+bridge/dist/
+dist/
+
 # Compiled Lua sources
 luac.out
 
-Bridge/__pycache__
+# PyInstaller spec
 *.spec
 
 # luarocks build files
