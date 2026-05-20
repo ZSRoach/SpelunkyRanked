@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 import match_cache
 from rank_utils import create_rank_icon
-from config import CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_ACTIVE_BTN, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_UNRANKED, format_time, relative_time
+from config import CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_ACTIVE_BTN, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_UNRANKED, PLACEMENT_MATCHES_REQUIRED, format_time, relative_time
 
 
 def _elo_change_text(change: int) -> str:
@@ -107,7 +107,12 @@ class MatchCard(QFrame):
         p1_elo_col.setSpacing(0)
         p1_elo_col.setContentsMargins(0, 0, 0, 0)
         if p1_elo == -1:
-            p1_elo_lbl = QLabel("Placement" if is_placement_match else "[Unranked]")
+            if is_placement_match:
+                p1_done = match_data.get("player_1_placements_completed", 0)
+                p1_label_text = f"{p1_done}/{PLACEMENT_MATCHES_REQUIRED}"
+            else:
+                p1_label_text = "[Unranked]"
+            p1_elo_lbl = QLabel(p1_label_text)
             p1_elo_lbl.setStyleSheet(f"background: transparent; color: {CLR_UNRANKED}; font-size: 16px; font-weight: bold;")
             p1_elo_lbl.setAlignment(Qt.AlignCenter)
             p1_elo_col.addWidget(p1_elo_lbl)
@@ -156,7 +161,12 @@ class MatchCard(QFrame):
         p2_elo_col.setSpacing(0)
         p2_elo_col.setContentsMargins(0, 0, 0, 0)
         if p2_elo == -1:
-            p2_elo_lbl = QLabel("Placement" if is_placement_match else "[Unranked]")
+            if is_placement_match:
+                p2_done = match_data.get("player_2_placements_completed", 0)
+                p2_label_text = f"{p2_done}/{PLACEMENT_MATCHES_REQUIRED}"
+            else:
+                p2_label_text = "[Unranked]"
+            p2_elo_lbl = QLabel(p2_label_text)
             p2_elo_lbl.setStyleSheet(f"background: transparent; color: {CLR_UNRANKED}; font-size: 16px; font-weight: bold;")
             p2_elo_lbl.setAlignment(Qt.AlignCenter)
             p2_elo_col.addWidget(p2_elo_lbl)
@@ -384,7 +394,8 @@ class MatchHistoryPage(QWidget):
                 self._list_layout.insertWidget(idx, divider)
 
             self._matches.append(m)
-            card = MatchCard(m)
+            normalized = match_cache.normalize_match_pov(m, self._controller.steam_id)
+            card = MatchCard(normalized)
             card.clicked.connect(self.match_selected.emit)
             # Insert before the stretch
             idx = self._list_layout.count() - 1

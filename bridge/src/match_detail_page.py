@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from rank_utils import create_rank_icon, get_rank_icon_path
 from config import CLR_WIDGET_BG, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_ACTIVE_BTN, CLR_BUTTON_BG, CLR_MAIN_BG, CLR_UNRANKED, RANK_COLORS, format_time, full_match_datetime
+import match_cache
 
 
 def _elo_change_text(change: int) -> str:
@@ -34,8 +35,12 @@ def _apply_name_style(label: "QLabel", text: str, color: str, max_width: int = 1
     label.setStyleSheet(f"color: {color}; font-size: {size}px; font-weight: bold;")
 
 
+_CO_MILESTONE_LEVELS = frozenset({8, 12, 16})
+
+
 def _filter_timeline_events(markers: list, player_id: str) -> list:
-    """Return timeline events for a player: deaths, restarts, forfeit, and new-furthest-area progress only."""
+    """Return timeline events for a player: deaths, restarts, forfeit, new-furthest-area progress,
+    and CO% milestone levels (7-8, 7-12, 7-16)."""
     filtered = []
     furthest_area = 1  # area 1 is always the starting area, shown as Match Start bar
     for m in markers:
@@ -46,8 +51,12 @@ def _filter_timeline_events(markers: list, player_id: str) -> list:
             filtered.append(m)
         elif etype == "progress":
             area = m.get("area", 0)
+            level = m.get("level", 0)
+            theme = m.get("theme", 0)
             if area > furthest_area:
                 furthest_area = area
+                filtered.append(m)
+            elif theme == 10 and level in _CO_MILESTONE_LEVELS:
                 filtered.append(m)
     return filtered
 
@@ -409,6 +418,7 @@ class MatchDetailPage(QWidget):
         scroll.setWidget(self._timeline)
 
     def load_match(self, match_data: dict):
+        match_data = match_cache.normalize_match_pov(match_data, self._controller.steam_id)
         p1 = match_data.get("player_1_id", "")
         p2 = match_data.get("player_2_id", "")
         winner = match_data.get("winner_id", "")

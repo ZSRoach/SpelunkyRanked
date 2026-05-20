@@ -1,6 +1,7 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.12',
+    version = '1.13',
+    component_version = '1.13.0',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -673,7 +674,7 @@ function spawnSign()
     local signUID = spawn_entity(ENT_TYPE.ITEM_SPEEDRUN_SIGN, 46, 84, LAYER.FRONT, 0, 0)
     sign = get_entity(signUID)
     sign.flags = clr_flag(sign.flags, ENT_FLAG.ENABLE_BUTTON_PROMPT)
-    if matchStarted then
+    if matchStarted and not changingSeed then
         processChat("Interact with the sign to continue the match!","Match Info")
         button_prompts.spawn_button_prompt_on(button_prompts.PROMPT_TYPE.INTERACT, signUID, function()
             force11()
@@ -1353,6 +1354,7 @@ function adjustFade()
             blackness = blackness - .004
             if blackness < 0 then
                 blackness = 0
+                state.loading = 0
                 revealingRank = 0
             end
         end
@@ -1508,7 +1510,7 @@ function timedOps()
                 end
                 bridgeConnected = true
             elseif event == "version_request" then
-                server:send(json.encode({ event = "version_response", version = meta.version }), bridgeAddress)
+                server:send(json.encode({ event = "version_response", version = meta.version , component_version = meta.component_version}), bridgeAddress)
             elseif event == "version_mismatch" then
                 bridgeConnected = false
             -- Match found
@@ -1658,6 +1660,11 @@ function timedOps()
             elseif event == "opponent_reconnected" then
                 processChat("The opponent has reconnected. Good luck!", "Match Info")
                 opponentConnected = true
+            elseif event == "disconnect_detected" then
+                processChat("Lost connection to the game server. Attempting reconnection...", "Match Info")
+                if matchStarted then
+                    processChat("Keep playing! If your connection is restored within 30 seconds, the match will continue.", "Match Info")
+                end
             elseif event == "reconnected" then
                 processChat("Your connection was lost temporarily, but was restored. The match is still active.", "Match Info")
                 if not matchStarted then

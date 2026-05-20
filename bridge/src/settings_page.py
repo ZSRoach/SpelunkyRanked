@@ -23,6 +23,7 @@ class SettingsPage(QWidget):
 
     logout_requested = Signal()
     overlay_always_on_top_changed = Signal(bool)
+    restart_requested = Signal()
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)

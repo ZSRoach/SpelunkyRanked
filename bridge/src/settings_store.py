@@ -100,3 +100,23 @@ def clear_login_creds() -> None:
     data = _load()
     data.pop("login_creds", None)
     _save(data)
+
+
+def get_update_game_dir() -> str:
+    return _load().get("update_game_dir", "")
+
+
+def set_update_game_dir(path: str) -> None:
+    data = _load()
+    data["update_game_dir"] = path
+    _save(data)
+
+
+def get_update_app_dir() -> str:
+    return _load().get("update_app_dir", "")
+
+
+def set_update_app_dir(path: str) -> None:
+    data = _load()
+    data["update_app_dir"] = path
+    _save(data)

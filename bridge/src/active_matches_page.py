@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from config import (
-    THEME_NAMES, FINISHED_MATCH_DISPLAY_SECONDS,
+    THEME_NAMES, FINISHED_MATCH_DISPLAY_SECONDS, PLACEMENT_MATCHES_REQUIRED,
     CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_TEXT, CLR_TEXT_BRIGHT, CLR_ACTIVE_BTN, CLR_UNRANKED,
 )
 from rank_utils import create_rank_icon, apply_rank_label_style
@@ -66,7 +66,8 @@ class ActiveMatchToast(QFrame):
                 f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 24px; font-weight: bold;"
             )
         else:
-            self._p1_elo = QLabel("[Unranked]")
+            p1_done = d.get("player_1_placements_completed", 0)
+            self._p1_elo = QLabel(f"{p1_done}/{PLACEMENT_MATCHES_REQUIRED}")
             self._p1_elo.setStyleSheet(
                 f"background: transparent; color: {CLR_UNRANKED}; font-size: 18px; font-weight: bold;"
             )
@@ -123,7 +124,8 @@ class ActiveMatchToast(QFrame):
                 f"background: transparent; color: {CLR_TEXT_BRIGHT}; font-size: 24px; font-weight: bold;"
             )
         else:
-            self._p2_elo = QLabel("[Unranked]")
+            p2_done = d.get("player_2_placements_completed", 0)
+            self._p2_elo = QLabel(f"{p2_done}/{PLACEMENT_MATCHES_REQUIRED}")
             self._p2_elo.setStyleSheet(
                 f"background: transparent; color: {CLR_UNRANKED}; font-size: 18px; font-weight: bold;"
             )

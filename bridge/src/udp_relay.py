@@ -45,7 +45,7 @@ class UDPRelay(QObject):
     game_connected = Signal()
     game_disconnected = Signal()
     game_ack = Signal(str)           # ack for event name
-    game_version_received = Signal(float)  # game mod version
+    game_version_received = Signal(float, str)  # game mod version, component version
     game_send_chat = Signal(str)     # message to relay to server
     game_request_seed_change = Signal()
     game_request_draw = Signal()
@@ -182,7 +182,7 @@ class UDPRelay(QObject):
             elif event == "completion":
                 self.game_completion.emit()
             elif event == "version_response":
-                self.game_version_received.emit(float(data.get("version", 0.0)))
+                self.game_version_received.emit(float(data.get("version", 0.0)), str(data.get("component_version", "")))
             elif event == "send_chat":
                 self.game_send_chat.emit(data.get("message", ""))
             elif event == "request_seed_change":

@@ -15,7 +15,8 @@ import api_client
 import match_cache
 from ws_client import WSClient
 from udp_relay import UDPRelay
-from config import QUEUE_POLL_INTERVAL, BRIDGE_VERSION
+from config import QUEUE_POLL_INTERVAL, BRIDGE_VERSION, BRIDGE_COMPONENT_VERSION
+import updater_service
 
 log = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ class BridgeController(QObject):
     match_resumed = Signal(dict)    # WS reconnected mid-match within grace window; payload has match state
 
     # ---- Version mismatch signals ----
-    bridge_version_mismatch = Signal(str)   # bridge download URL
-    game_version_mismatch = Signal(str)     # game mod download URL
+    bridge_version_mismatch = Signal(dict)   # structured mismatch payload
+    game_version_mismatch = Signal(dict)     # structured mismatch payload
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -86,6 +87,14 @@ class BridgeController(QObject):
         # Server version info (populated during login)
         self._server_version: float = 0.0
         self._game_mod_download_url: str = ""
+        self._server_bridge_component_version: str = ""
+        self._server_game_component_version: str = ""
+        self.last_game_component_version: str = ""
+        self.last_version_info: dict = {}
+
+        # Deferred version mismatch — set when a mismatch is detected during an active
+        # match so the match isn't interrupted. Emitted when postmatch closes.
+        self._pending_version_mismatch: tuple | None = None  # ("bridge"|"game", payload)
 
         # Whether the WS was deliberately stopped (logout/stop_networking)
         self._ws_intentional_disconnect: bool = False
@@ -141,6 +150,34 @@ class BridgeController(QObject):
         self.udp.game_close_postmatch.connect(self._on_game_close_postmatch)
         self.udp.game_rank_reveal_complete.connect(self._on_game_rank_reveal_complete)
 
+    def _apply_version_info(self, version_info: dict) -> None:
+        component_versions = version_info.get("component_versions", {}) or {}
+        self._server_version = version_info.get("version", 0.0)
+        self._game_mod_download_url = version_info.get("game_mod_download_url", "")
+        self._server_bridge_component_version = updater_service.normalize_version(component_versions.get("bridge", ""))
+        self._server_game_component_version = updater_service.normalize_version(component_versions.get("game", ""))
+        self.last_version_info = {**version_info, "version_text": updater_service.normalize_version(version_info.get("version", "")), "bridge_component_version": self._server_bridge_component_version, "game_component_version": self._server_game_component_version}
+
+    def _build_version_payload(self, scope: str, bridge_download_url: str = "") -> dict:
+        return {
+            "scope": scope,
+            "standard_version": updater_service.normalize_version(self._server_version),
+            "local_bridge_standard": updater_service.normalize_version(BRIDGE_VERSION),
+            "local_bridge_component": updater_service.normalize_version(BRIDGE_COMPONENT_VERSION),
+            "local_game_component": self.last_game_component_version,
+            "server_bridge_component": self._server_bridge_component_version,
+            "server_game_component": self._server_game_component_version,
+            "bridge_download_url": bridge_download_url,
+            "game_download_url": self._game_mod_download_url,
+        }
+
+    def _bridge_version_mismatch_detected(self) -> bool:
+        if self._server_version and updater_service.normalize_version(self._server_version) != updater_service.normalize_version(BRIDGE_VERSION):
+            return True
+        if self._server_bridge_component_version and self._server_bridge_component_version != updater_service.normalize_version(BRIDGE_COMPONENT_VERSION):
+            return True
+        return False
+
     # ---- Public API ----
 
     def login(self, steam_id: str, token: str, ts: int) -> None:
@@ -157,14 +194,13 @@ class BridgeController(QObject):
                 log.info("Login attempt for steam_id=%s", steam_id)
                 # Check bridge version before login
                 version_info = api_client.get_server_version()
-                self._server_version = version_info.get("version", 0.0)
-                self._game_mod_download_url = version_info.get("game_mod_download_url", "")
+                self._apply_version_info(version_info)
                 bridge_download_url = version_info.get("bridge_download_url", "")
-                log.info("Server version=%.2f bridge_version=%.2f", self._server_version, BRIDGE_VERSION)
+                log.info("Server version=%s bridge_version=%s bridge_component(local=%s server=%s)", updater_service.normalize_version(self._server_version), updater_service.normalize_version(BRIDGE_VERSION), updater_service.normalize_version(BRIDGE_COMPONENT_VERSION), self._server_bridge_component_version or "<none>")
 
-                if BRIDGE_VERSION != self._server_version:
+                if self._bridge_version_mismatch_detected():
                     log.warning("Bridge version mismatch — emitting bridge_version_mismatch")
-                    self.bridge_version_mismatch.emit(bridge_download_url)
+                    self.bridge_version_mismatch.emit(self._build_version_payload("bridge", bridge_download_url))
                     return
 
                 data = api_client.login(steam_id, token, ts)
@@ -261,6 +297,7 @@ class BridgeController(QObject):
         self._login_ts = 0
         self._pending_match_disconnect = False
         self._game_in_grace = False
+        self._pending_version_mismatch = None
 
     def start_active_matches_polling(self) -> None:
         """Immediately poll active matches, then repeat every QUEUE_POLL_INTERVAL."""
@@ -392,10 +429,13 @@ class BridgeController(QObject):
     def _on_ws_disconnected(self) -> None:
         log.warning("WebSocket disconnected from server (intentional=%s)", self._ws_intentional_disconnect)
         self.ws_disconnected.emit()
-        # Issue 4: reconnect automatically if this wasn't a deliberate shutdown
-        if self.steam_id and not self._ws_intentional_disconnect:
-            log.info("Scheduling WS reconnect in 5s for %s", self.steam_id)
-            QTimer.singleShot(5000, self._attempt_ws_reconnect)
+        if not self._ws_intentional_disconnect:
+            if (self.in_match or self.in_ban_phase) and self.udp.is_game_connected():
+                self.udp.send_to_game({"event": "disconnect_detected"})
+            # Issue 4: reconnect automatically if this wasn't a deliberate shutdown
+            if self.steam_id:
+                log.info("Scheduling WS reconnect in 5s for %s", self.steam_id)
+                QTimer.singleShot(5000, self._attempt_ws_reconnect)
 
     def _attempt_ws_reconnect(self) -> None:
         if not self.steam_id or self._ws_intentional_disconnect:
@@ -408,17 +448,21 @@ class BridgeController(QObject):
             # fail and schedule another retry if the server is still unreachable.
             try:
                 version_info = api_client.get_server_version()
-                server_version = version_info.get("version", 0.0)
-                self._server_version = server_version
-                self._game_mod_download_url = version_info.get("game_mod_download_url", "")
-                if BRIDGE_VERSION != server_version:
-                    log.warning(
-                        "Bridge version mismatch on reconnect (bridge=%.2f server=%.2f) — stopping",
-                        BRIDGE_VERSION, server_version,
-                    )
-                    self._ws_intentional_disconnect = True
-                    self.bridge_version_mismatch.emit(version_info.get("bridge_download_url", ""))
-                    return
+                self._apply_version_info(version_info)
+                if self._bridge_version_mismatch_detected():
+                    payload = self._build_version_payload("bridge", version_info.get("bridge_download_url", ""))
+                    if self.in_match or self.in_ban_phase or self.in_postmatch:
+                        log.warning("Bridge version mismatch detected mid-match — deferring until postmatch closes")
+                        self._pending_version_mismatch = ("bridge", payload)
+                    else:
+                        log.warning(
+                            "Bridge version mismatch on reconnect (bridge=%s/%s server=%s/%s) — stopping",
+                            updater_service.normalize_version(BRIDGE_VERSION), updater_service.normalize_version(BRIDGE_COMPONENT_VERSION),
+                            updater_service.normalize_version(self._server_version), self._server_bridge_component_version or "<none>",
+                        )
+                        self._ws_intentional_disconnect = True
+                        self.bridge_version_mismatch.emit(payload)
+                        return
             except Exception as e:
                 log.warning("Version check on reconnect failed (%s) — proceeding", e)
 
@@ -460,6 +504,7 @@ class BridgeController(QObject):
             self.in_match = False
             self.in_ban_phase = False
             self.udp.send_to_game({"event": "match_not_found"})
+            self._emit_pending_version_mismatch()
         elif attempt < 3:
             log.warning(
                 "Server still reports active match for %s (attempt %d) — retrying in 10s",
@@ -488,14 +533,21 @@ class BridgeController(QObject):
         self.game_connected.emit()
         self.udp.request_game_version()
 
-    def _on_game_version_received(self, game_version: float) -> None:
-        """Check the game mod version against the server version."""
-        log.info("Game version=%.2f server_version=%.2f", game_version, self._server_version)
-        if game_version != self._server_version:
+    def _on_game_version_received(self, game_version: float, game_component_version: str = "") -> None:
+        """Check the game mod version against the server standard and optional component version."""
+        self.last_game_component_version = updater_service.normalize_version(game_component_version)
+        standard_mismatch = updater_service.normalize_version(game_version) != updater_service.normalize_version(self._server_version)
+        component_mismatch = bool(self._server_game_component_version and self.last_game_component_version and self.last_game_component_version != self._server_game_component_version)
+        log.info("Game version=%s server_version=%s game_component(local=%s server=%s)", updater_service.normalize_version(game_version), updater_service.normalize_version(self._server_version), self.last_game_component_version or "<none>", self._server_game_component_version or "<none>")
+        if standard_mismatch or component_mismatch:
+            if self.in_match or self.in_ban_phase or self.in_postmatch:
+                log.warning("Game mod version mismatch detected mid-match — deferring until postmatch closes")
+                self._pending_version_mismatch = ("game", self._build_version_payload("game"))
+                return
             log.warning("Game mod version mismatch")
             self.udp.send_to_game({"event": "version_mismatch"})
             self.stop_networking()
-            self.game_version_mismatch.emit(self._game_mod_download_url)
+            self.game_version_mismatch.emit(self._build_version_payload("game"))
 
     # ---- Game → Server relay (UDP events forwarded to WS) ----
 
@@ -642,6 +694,7 @@ class BridgeController(QObject):
         self.in_ban_phase = False
         self.udp.send_to_game({"event": "match_scrapped"})
         self.match_scrapped.emit()
+        self._emit_pending_version_mismatch()
 
     def _on_game_send_chat(self, message: str) -> None:
         if not self.in_match and not self.in_ban_phase and not self.in_postmatch:
@@ -666,9 +719,24 @@ class BridgeController(QObject):
             return
         self.ws.send_forfeit()
 
+    def _emit_pending_version_mismatch(self) -> None:
+        if not self._pending_version_mismatch:
+            return
+        kind, payload = self._pending_version_mismatch
+        self._pending_version_mismatch = None
+        log.info("Emitting deferred %s version mismatch after postmatch", kind)
+        if kind == "bridge":
+            self.stop_networking()
+            self.bridge_version_mismatch.emit(payload)
+        else:
+            self.udp.send_to_game({"event": "version_mismatch"})
+            self.stop_networking()
+            self.game_version_mismatch.emit(payload)
+
     def _on_game_close_postmatch(self) -> None:
         self.in_postmatch = False
         self.ws.send_close_postmatch()
+        self._emit_pending_version_mismatch()
 
     def _on_ws_rank_reveal(self, data: dict) -> None:
         """Server fires this after the postmatch window closes on the 10th placement match."""
@@ -685,6 +753,7 @@ class BridgeController(QObject):
     def _on_ws_postmatch_closed(self) -> None:
         self.in_postmatch = False
         self.udp.send_to_game({"event": "postmatch_closed"})
+        self._emit_pending_version_mismatch()
 
     def _on_ws_receive_seed_change_request(self) -> None:
         self.udp.send_to_game({"event": "receive_seed_change_request"})

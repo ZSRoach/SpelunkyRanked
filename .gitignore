@@ -9,6 +9,7 @@ bridge/src/match_cache.json
 
 # pycache
 bridge/src/__pycache__/
+bridge/__pycache__
 
 # PyInstaller Work Dir
 bridge/build/pyinstaller/

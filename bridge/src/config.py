@@ -4,7 +4,18 @@ import os
 import sys
 
 # Bridge version — must match server VERSION (float)
-BRIDGE_VERSION = 1.12
+BRIDGE_VERSION = 1.13
+
+BRIDGE_COMPONENT_VERSION = "1.13.0"
+GAME_COMPONENT_VERSION = "1.13.0" #fallback, mostly ignored
+GITHUB_OWNER = "ZSRoach"
+GITHUB_REPO = "SpelunkyRanked"
+LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+GITHUB_RELEASES_PAGE = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
+BRIDGE_ASSET_NAME = "S2Ranked.zip"
+GAME_ASSET_NAME = "SpelunkyRanked.zip"
+APP_FOLDER_NAME = "Ranked App"
+MOD_SUBPATH = os.path.join("Mods", "Packs", "SpelunkyRanked")
 
 # Server connection — HTTPS is always enforced even if the env var is set to http://
 def _ensure_https(url: str) -> str:
@@ -41,6 +52,8 @@ else:
 MATCH_CACHE_PATH = os.path.join(_BASE_DIR, "match_cache.json")
 SETTINGS_PATH = os.path.join(_BASE_DIR, "settings.json")
 ASSETS_DIR = os.path.join(_BUNDLE_DIR, "assets")
+
+PLACEMENT_MATCHES_REQUIRED = 10
 
 # Default settings
 DEFAULT_OVERLAY_COLOR = "#00FF00"

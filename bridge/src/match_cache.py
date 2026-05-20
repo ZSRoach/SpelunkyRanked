@@ -25,3 +25,19 @@ def append_match(match_data: dict) -> None:
     if match_data.get("match_id") not in existing_ids:
         matches.insert(0, match_data)  # newest first
         save_cached_matches(matches)
+
+
+def normalize_match_pov(match: dict, my_id: str) -> dict:
+    """Return a copy of match with p1/p2 fields swapped if my_id is player 2.
+
+    Ensures the current user always appears on the left side. If my_id is not
+    in the match or is already player 1, returns a copy unchanged. Idempotent.
+    """
+    if not my_id or match.get("player_2_id") != my_id:
+        return dict(match)
+    m = dict(match)
+    for suffix in ("id", "name", "elo", "elo_change", "placements_completed", "area", "theme"):
+        k1, k2 = f"player_1_{suffix}", f"player_2_{suffix}"
+        if k1 in m or k2 in m:
+            m[k1], m[k2] = m.get(k2), m.get(k1)
+    return m

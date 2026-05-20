@@ -33,8 +33,6 @@ class LoginPage(QWidget):
         self._controller.registration_needed.connect(self._show_name_prompt)
         # Registration error (name taken, blocked, etc.) — stay on name prompt
         self._controller.registration_failed.connect(self._on_registration_failed)
-        # Bridge version mismatch
-        self._controller.bridge_version_mismatch.connect(self._show_version_mismatch)
         # On login failure, reset to normal login state
         self._controller.login_failed.connect(self._on_login_failed)
         # Steam ID is permanently banned
@@ -191,19 +189,6 @@ class LoginPage(QWidget):
         self._reg_name_input.setFocus()
         self._status_label.setText("")
         self._status_label.setStyleSheet("color: #ff6666; font-size: 22px; font-weight: bold;")
-
-    def _show_version_mismatch(self, download_url: str):
-        """Show bridge version mismatch with download link."""
-        self._login_btn.hide()
-        self._name_section.hide()
-        self._subtitle.setText("Bridge version mismatch")
-        self._status_label.setStyleSheet("color: #ff6666; font-size: 22px; font-weight: bold;")
-        self._status_label.setText(
-            f'Your bridge is outdated. Download the latest version: '
-            f'<a href="{download_url}" style="color: #66aaff;">{download_url}</a>'
-        )
-        self._status_label.setOpenExternalLinks(True)
-        self._status_label.setTextFormat(Qt.RichText)
 
     def _on_registration_failed(self, msg: str):
         """Registration was rejected (name taken, blocked, etc.) — stay on name prompt."""

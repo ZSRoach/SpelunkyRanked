@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 
 [[package]]
@@ -334,7 +334,7 @@ wheels = [
 
 [[package]]
 name = "s2rankedbridge"
-version = "1.11"
+version = "1.12"
 source = { virtual = "." }
 dependencies = [
     { name = "pyside6" },
