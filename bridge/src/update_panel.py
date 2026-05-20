@@ -108,7 +108,10 @@ class UpdateInstallWorker(QObject):
                 game_root = updater_service.find_game_root()
                 if not game_root:
                     raise RuntimeError("Spelunky 2 folder not found.")
-                updater_service.install_game_mod(game_zip, game_root)
+                updater_service.install_game_mod(
+                    game_zip, game_root,
+                    self._latest_release.get("game_component_latest", ""),
+                )
                 self.progress.emit(85 if self._update_bridge else 100)
 
             if self._update_bridge and bridge_zip:

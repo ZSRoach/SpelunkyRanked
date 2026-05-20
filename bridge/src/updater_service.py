@@ -157,7 +157,7 @@ def copy_contents(src_dir: str, dst_dir: str):
             shutil.copy2(src, dst)
 
 
-def install_game_mod(zip_path: str, game_root: str):
+def install_game_mod(zip_path: str, game_root: str, version_text: str = ""):
     extract_dir = tempfile.mkdtemp(prefix="s2ranked_mod_")
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
@@ -167,6 +167,8 @@ def install_game_mod(zip_path: str, game_root: str):
         dst = os.path.join(game_root, MOD_SUBPATH)
         os.makedirs(dst, exist_ok=True)
         copy_contents(src_root, dst)
+        if version_text:
+            _write_version_file(dst, version_text)
     finally:
         shutil.rmtree(extract_dir, ignore_errors=True)
 
