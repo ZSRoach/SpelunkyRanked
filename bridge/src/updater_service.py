@@ -86,6 +86,17 @@ def download_file(url: str, out_path: str, progress_callback=None):
                     progress_callback(done, total)
 
 
+def read_installed_game_version(game_root: str) -> str:
+    """Return the version string from the installed game mod's version.txt, or '' if absent."""
+    try:
+        p = Path(os.path.join(game_root, MOD_SUBPATH, "version.txt"))
+        if p.exists():
+            return p.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    return ""
+
+
 def get_release_payload() -> dict:
     headers = {
         "User-Agent": "S2Ranked-Updater",

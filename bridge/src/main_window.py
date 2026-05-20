@@ -48,7 +48,8 @@ from fastest_times_page import FastestTimesPage
 from settings_page import SettingsPage
 from overlay_window import OverlayWindow
 from update_panel import UpdatePanel
-from config import CLR_MAIN_BG, CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_ACTIVE_BTN, CLR_TEXT, CLR_TEXT_BRIGHT
+from config import CLR_MAIN_BG, CLR_WIDGET_BG, CLR_BUTTON_BG, CLR_ACTIVE_BTN, CLR_TEXT, CLR_TEXT_BRIGHT, BRIDGE_VERSION
+from updater_service import normalize_version as _normalize_version
 
 
 # Style constants
@@ -442,10 +443,12 @@ class MainWindow(QMainWindow):
 
     def _check_update_indicator(self):
         try:
-            self._update_panel.refresh_labels()
-            local_bridge = self._update_panel._installed_bridge.text().strip()
-            latest_bridge = self._update_panel._server_standard.text().strip()
-            show = bool(local_bridge and latest_bridge and local_bridge != latest_bridge)
+            info = getattr(self._controller, "last_version_info", None) or {}
+            server_version = info.get("version")
+            if server_version is None:
+                self._set_update_indicator(False)
+                return
+            show = _normalize_version(BRIDGE_VERSION) != _normalize_version(server_version)
             self._set_update_indicator(show)
         except Exception:
             pass

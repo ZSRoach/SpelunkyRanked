@@ -160,6 +160,8 @@ class UpdatePanel(QWidget):
         self._install_thread = None
         self._install_worker = None
         self._pending_update_request = None
+        self._bridge_outdated: bool | None = None
+        self._game_outdated: bool | None = None
 
         self._setup_ui()
         self.refresh_labels()
@@ -319,8 +321,8 @@ class UpdatePanel(QWidget):
         self._server_version_info = info
         self._installed_bridge.setText(str(BRIDGE_COMPONENT_VERSION))
         self._server_standard.setText(info.get("version_text") or str(BRIDGE_VERSION))
-        self._app_dir.setText(updater_service.default_app_install_dir())
-        self._game_dir.setText(updater_service.find_game_root() or "Not found")
+        self._app_dir.setText(updater_service.default_app_install_dir().replace("\\", "/"))
+        self._game_dir.setText((updater_service.find_game_root() or "Not found").replace("\\", "/"))
 
     def _set_status(self, text, ok=None):
         color = CLR_TEXT if ok is None else ("#58D68D" if ok else "#FF6B6B")
@@ -329,9 +331,33 @@ class UpdatePanel(QWidget):
         )
         self._status.setText(text)
 
+    def _apply_update_state(self):
+        """Set button enabled states and status text based on last version check."""
+        if self._bridge_outdated is None:
+            for b in [self._check, self._update_bridge, self._update_game, self._update_both]:
+                b.setEnabled(True)
+            return
+        bridge_out = self._bridge_outdated
+        game_out = self._game_outdated
+        self._check.setEnabled(True)
+        self._update_bridge.setEnabled(bridge_out)
+        self._update_game.setEnabled(game_out)
+        self._update_both.setEnabled(bridge_out and game_out)
+        if not bridge_out and not game_out:
+            self._set_status("You are up to date!", True)
+        elif bridge_out and not game_out:
+            self._set_status("Bridge is out of date, update now.", None)
+        elif not bridge_out and game_out:
+            self._set_status("Game mod is out of date, update now.", None)
+        else:
+            self._set_status("Bridge and game mod are out of date, update now.", None)
+
     def _set_busy(self, busy):
-        for b in [self._check, self._update_bridge, self._update_game, self._update_both]:
-            b.setEnabled(not busy)
+        if busy:
+            for b in [self._check, self._update_bridge, self._update_game, self._update_both]:
+                b.setEnabled(False)
+        else:
+            self._apply_update_state()
 
     def _pick_app_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Ranked App folder", self._app_dir.text())
@@ -374,7 +400,18 @@ class UpdatePanel(QWidget):
         self._latest_release = release
         self._progress.setValue(100)
         self.refresh_labels()
-        self._set_status(f"Latest release ready ({release['tag']}).", True)
+
+        self._bridge_outdated = (
+            updater_service.normalize_version(BRIDGE_COMPONENT_VERSION)
+            != updater_service.normalize_version(release.get("bridge_component_latest", ""))
+        )
+        game_root = updater_service.find_game_root()
+        installed_game = updater_service.read_installed_game_version(game_root) if game_root else ""
+        self._game_outdated = (
+            updater_service.normalize_version(installed_game)
+            != updater_service.normalize_version(release.get("game_component_latest", ""))
+        )
+
         self._set_busy(False)
 
         if self._pending_update_request is not None:
@@ -435,6 +472,9 @@ class UpdatePanel(QWidget):
 
     @Slot(bool)
     def _on_install_finished(self, success):
+        if success:
+            self._bridge_outdated = None
+            self._game_outdated = None
         self._set_busy(False)
         if success:
             self.update_completed.emit(self._install_worker._update_bridge if self._install_worker else False, self._install_worker._update_game if self._install_worker else False)

@@ -6,7 +6,7 @@ import sys
 # Bridge version — must match server VERSION (float)
 BRIDGE_VERSION = 1.13
 
-BRIDGE_COMPONENT_VERSION = "1.13.0"
+BRIDGE_COMPONENT_VERSION = "1.13.1"
 GAME_COMPONENT_VERSION = "1.13.0" #fallback, mostly ignored
 GITHUB_OWNER = "ZSRoach"
 GITHUB_REPO = "SpelunkyRanked"
