@@ -57,6 +57,24 @@ class BridgeController(QObject):
     bridge_version_mismatch = Signal(dict)   # structured mismatch payload
     game_version_mismatch = Signal(dict)     # structured mismatch payload
 
+    # ---- Private room lifecycle signals (forwarded from WS/REST, also relayed to UDP) ----
+    room_joined = Signal(dict)          # full room snapshot {room_code, host_id, players, config, phase}
+    room_create_failed = Signal(str)    # error code, e.g. "at_capacity"
+    room_players_updated = Signal(dict)   # {players, host_id}
+    room_config_updated = Signal(dict)
+    room_alert = Signal(list)           # issues
+    room_starting = Signal(dict)        # {seed, category, config}
+    room_live = Signal(dict)            # {players}
+    room_progress = Signal(dict)        # {player_id, player_name, area, level, theme}
+    room_player_finished = Signal(dict) # {steam_id, player_name, completion_time}
+    room_player_forfeited = Signal(dict)# {steam_id, player_name}
+    room_result = Signal(dict)          # {participants, finalize_reason}
+    room_time_remaining = Signal(int)   # seconds
+    room_lobby_reset = Signal(dict)     # same shape as room_joined
+    room_closed = Signal(dict)          # {reason}
+    room_left = Signal()                # this player's own leave was confirmed
+    room_inactivity_warning = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -79,6 +97,13 @@ class BridgeController(QObject):
         # True after sending game_disconnect to server; cleared when game reconnects
         # (sends game_reconnected) or server resolves the match.
         self._game_in_grace: bool = False
+
+        # Private room state. Spans the whole room lifecycle (lobby/starting/live/results);
+        # in_room_race narrows to just the "live" phase, mirroring in_match's role for ranked —
+        # it gates the shared progress/death/instant_restart/completion/forfeit relay below.
+        self.in_room: bool = False
+        self.in_room_race: bool = False
+        self.room_code: str = ""
 
         # Login token (server-signed, required for all auth requests)
         self._login_token: str = ""
@@ -131,6 +156,26 @@ class BridgeController(QObject):
         self.ws.reconnected.connect(self._on_ws_reconnected)
         self.ws.auto_forfeit.connect(self._on_ws_auto_forfeit)
         self.ws.verify_winner_connection.connect(self._on_ws_verify_winner_connection)
+        self.ws.server_error.connect(self._on_ws_server_error)
+
+        # Wire WS signals → controller signals + UDP relay — private rooms
+        self.ws.room_joined.connect(self._on_ws_room_joined)
+        self.ws.room_players_update.connect(self._on_ws_room_players_update)
+        self.ws.room_config_update.connect(self._on_ws_room_config_update)
+        self.ws.room_alert.connect(self._on_ws_room_alert)
+        self.ws.room_starting.connect(self._on_ws_room_starting)
+        self.ws.room_live.connect(self._on_ws_room_live)
+        self.ws.room_progress.connect(self._on_ws_room_progress)
+        self.ws.room_player_finished.connect(self._on_ws_room_player_finished)
+        self.ws.confirm_completion.connect(self._on_ws_confirm_completion)
+        self.ws.room_player_forfeited.connect(self._on_ws_room_player_forfeited)
+        self.ws.confirm_forfeit.connect(self._on_ws_confirm_forfeit)
+        self.ws.room_result.connect(self._on_ws_room_result)
+        self.ws.room_time_remaining.connect(self._on_ws_room_time_remaining)
+        self.ws.room_lobby_reset.connect(self._on_ws_room_lobby_reset)
+        self.ws.room_closed.connect(self._on_ws_room_closed)
+        self.ws.confirm_leave.connect(self._on_ws_confirm_leave)
+        self.ws.room_inactivity_warning.connect(self._on_ws_room_inactivity_warning)
 
         # Wire UDP signals → WS relay
         self.udp.game_queue_ready.connect(self._on_game_queue_ready)
@@ -149,6 +194,17 @@ class BridgeController(QObject):
         self.udp.game_forfeit.connect(self._on_game_forfeit)
         self.udp.game_close_postmatch.connect(self._on_game_close_postmatch)
         self.udp.game_rank_reveal_complete.connect(self._on_game_rank_reveal_complete)
+
+        # Wire UDP signals → WS relay — private rooms
+        self.udp.game_create_room.connect(self._on_game_create_room)
+        self.udp.game_join_room.connect(self._on_game_join_room)
+        self.udp.game_leave_room.connect(self._on_game_leave_room)
+        self.udp.game_update_room_config.connect(self._on_game_update_room_config)
+        self.udp.game_start_room.connect(self._on_game_start_room)
+        self.udp.game_room_forfeit.connect(self._on_game_room_forfeit)
+        self.udp.game_room_seed_change.connect(self._on_game_room_seed_change)
+        self.udp.game_room_force_end.connect(self._on_game_room_force_end)
+        self.udp.game_room_dismiss_inactivity_warning.connect(self._on_game_room_dismiss_inactivity_warning)
 
     def _apply_version_info(self, version_info: dict) -> None:
         component_versions = version_info.get("component_versions", {}) or {}
@@ -298,6 +354,9 @@ class BridgeController(QObject):
         self._pending_match_disconnect = False
         self._game_in_grace = False
         self._pending_version_mismatch = None
+        self.in_room = False
+        self.in_room_race = False
+        self.room_code = ""
 
     def start_active_matches_polling(self) -> None:
         """Immediately poll active matches, then repeat every QUEUE_POLL_INTERVAL."""
@@ -385,7 +444,7 @@ class BridgeController(QObject):
         if self._pending_match_disconnect:
             self._pending_match_disconnect = False
             self.ws.send_game_disconnect()
-            if self.in_match or self.in_ban_phase:
+            if self.in_match or self.in_ban_phase or self.in_room:
                 if self.udp.is_game_connected():
                     # Game already reconnected while WS was down — notify server now.
                     self.ws.send_game_reconnected()
@@ -578,10 +637,13 @@ class BridgeController(QObject):
     def _on_game_disconnected(self) -> None:
         if self.in_queue:
             self._leave_queue()
-        if self.in_match or self.in_ban_phase:
+        if self.in_match or self.in_ban_phase or self.in_room:
             # Notify the server immediately so it can start its grace period
             # and inform the opponent. Bridge stays in match mode and waits
             # for the game to reconnect or the server to resolve the match.
+            # For a room, this maps to room_manager.handle_game_disconnect, which skips
+            # any grace period and removes the player immediately — see its docstring
+            # server-side for why (no mod-side persistence to resync from on relaunch).
             if self.ws.send_game_disconnect():
                 self._game_in_grace = True
             else:
@@ -610,22 +672,25 @@ class BridgeController(QObject):
         self.ws.send_ban(category)
 
     def _on_game_progress(self, area: int, level: int, theme: int) -> None:
-        if not self.in_match:
+        # progress/death/instant_restart/completion are shared events — the server tries
+        # match_manager first and falls back to room_manager, so the Bridge relays them
+        # whenever either a ranked match or a room race is live.
+        if not (self.in_match or self.in_room_race):
             return
         self.ws.send_progress(area, level, theme)
 
     def _on_game_death(self) -> None:
-        if not self.in_match:
+        if not (self.in_match or self.in_room_race):
             return
         self.ws.send_death()
 
     def _on_game_instant_restart(self) -> None:
-        if not self.in_match:
+        if not (self.in_match or self.in_room_race):
             return
         self.ws.send_instant_restart()
 
     def _on_game_completion(self) -> None:
-        if not self.in_match:
+        if not (self.in_match or self.in_room_race):
             return
         self.ws.send_completion()
 
@@ -697,7 +762,9 @@ class BridgeController(QObject):
         self._emit_pending_version_mismatch()
 
     def _on_game_send_chat(self, message: str) -> None:
-        if not self.in_match and not self.in_ban_phase and not self.in_postmatch:
+        # Chat is a shared event too — no phase restriction in a room (see specs.md), so
+        # in_room alone (not in_room_race) is the right gate here.
+        if not (self.in_match or self.in_ban_phase or self.in_postmatch or self.in_room):
             return
         self.ws.send_chat(message)
 
@@ -718,6 +785,80 @@ class BridgeController(QObject):
         if not self.in_match:
             return
         self.ws.send_forfeit()
+
+    # ---- Game → Server relay — private rooms ----
+
+    def _enter_room(self, room: dict) -> None:
+        """Shared by the create_room (REST) and join_room (WS) success paths — both hand back
+        the same room-snapshot shape (room_joined's payload), just over different transports."""
+        self.in_room = True
+        self.in_room_race = False
+        self.room_code = room.get("room_code", "")
+        log.info("Entered private room %s", self.room_code)
+        self.udp.send_to_game({"event": "room_joined", **room})
+        self.room_joined.emit(room)
+
+    def _on_game_create_room(self) -> None:
+        """create_room is the one room action that's a REST call, not a WS event — the server
+        has no WS push for the creator, so the HTTP response IS the room snapshot."""
+        log.info("UDP: game_create_room received, steam_id=%s", self.steam_id)
+        steam_id = self.steam_id
+        token = self._login_token
+        ts = self._login_ts
+        def _do():
+            try:
+                room = api_client.rooms_create(steam_id, token, ts)
+                self._enter_room(room)
+            except requests.HTTPError as e:
+                code = "could not create room"
+                try:
+                    code = e.response.json().get("error", code)
+                except Exception:
+                    pass
+                log.warning("Room create rejected: %s", code)
+                self.udp.send_to_game({"event": "error", "code": code})
+                self.room_create_failed.emit(code)
+            except Exception as e:
+                log.error("Room create failed: %s", e)
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _on_game_join_room(self, room_code: str) -> None:
+        self.ws.send_join_room(room_code)
+
+    def _on_game_leave_room(self) -> None:
+        if not self.in_room:
+            return
+        self.ws.send_leave_room()
+
+    def _on_game_update_room_config(self, config: dict) -> None:
+        if not self.in_room:
+            return
+        self.ws.send_update_room_config(config)
+
+    def _on_game_start_room(self) -> None:
+        if not self.in_room:
+            return
+        self.ws.send_start_room()
+
+    def _on_game_room_forfeit(self) -> None:
+        if not self.in_room_race:
+            return
+        self.ws.send_room_forfeit()
+
+    def _on_game_room_seed_change(self) -> None:
+        if not self.in_room:
+            return
+        self.ws.send_room_seed_change()
+
+    def _on_game_room_force_end(self) -> None:
+        if not self.in_room_race:
+            return
+        self.ws.send_room_force_end()
+
+    def _on_game_room_dismiss_inactivity_warning(self) -> None:
+        if not self.in_room:
+            return
+        self.ws.send_room_dismiss_inactivity_warning()
 
     def _emit_pending_version_mismatch(self) -> None:
         if not self._pending_version_mismatch:
@@ -804,3 +945,93 @@ class BridgeController(QObject):
             "placements_remaining": data.get("placements_remaining"),
         })
         self.refresh_player_data()
+
+    def _on_ws_server_error(self, data: dict) -> None:
+        """Generic WS rejection (wrong_phase, or a room-specific code like at_capacity/
+        not_found/full/banned/already_in_room/in_queue/already_in_match/not_joinable —
+        the same codes routes.py's /rooms/create returns, matched deliberately so main.lua's
+        error handler doesn't need to distinguish which transport an error came from)."""
+        self.udp.send_to_game({"event": "error", "code": data.get("code", "")})
+
+    # ---- Server → Game relay — private rooms ----
+
+    def _on_ws_room_joined(self, room: dict) -> None:
+        log.info("WS: room_joined — room_code=%s", room.get("room_code"))
+        self._enter_room(room)
+
+    def _on_ws_room_players_update(self, data: dict) -> None:
+        self.udp.send_to_game({"event": "room_players_update", "players": data["players"], "host_id": data["host_id"]})
+        self.room_players_updated.emit(data)
+
+    def _on_ws_room_config_update(self, config: dict) -> None:
+        self.udp.send_to_game({"event": "room_config_update", "config": config})
+        self.room_config_updated.emit(config)
+
+    def _on_ws_room_alert(self, issues: list) -> None:
+        self.udp.send_to_game({"event": "room_alert", "issues": issues})
+        self.room_alert.emit(issues)
+
+    def _on_ws_room_starting(self, data: dict) -> None:
+        log.info("WS: room_starting — category=%s seed=%s", data.get("category"), data.get("seed"))
+        # Critical message — retry until ack
+        self.udp.send_critical({"event": "room_starting", **data})
+        self.room_starting.emit(data)
+
+    def _on_ws_room_live(self, data: dict) -> None:
+        log.info("WS: room_live")
+        self.in_room_race = True
+        # Critical message — retry until ack
+        self.udp.send_critical({"event": "room_live", **data})
+        self.room_live.emit(data)
+
+    def _on_ws_room_progress(self, data: dict) -> None:
+        self.udp.send_to_game({"event": "room_progress", **data})
+        self.room_progress.emit(data)
+
+    def _on_ws_room_player_finished(self, data: dict) -> None:
+        self.udp.send_to_game({"event": "room_player_finished", **data})
+        self.room_player_finished.emit(data)
+
+    def _on_ws_confirm_completion(self, data: dict) -> None:
+        self.udp.send_to_game({"event": "confirm_completion", **data})
+
+    def _on_ws_room_player_forfeited(self, data: dict) -> None:
+        self.udp.send_to_game({"event": "room_player_forfeited", **data})
+        self.room_player_forfeited.emit(data)
+
+    def _on_ws_confirm_forfeit(self, data: dict) -> None:
+        self.udp.send_to_game({"event": "confirm_forfeit", **data})
+
+    def _on_ws_room_result(self, data: dict) -> None:
+        log.info("WS: room_result — finalize_reason=%s", data.get("finalize_reason"))
+        self.in_room_race = False
+        self.udp.send_to_game({"event": "room_result", **data})
+        self.room_result.emit(data)
+
+    def _on_ws_room_time_remaining(self, seconds: int) -> None:
+        self.udp.send_to_game({"event": "room_time_remaining", "seconds": seconds})
+        self.room_time_remaining.emit(seconds)
+
+    def _on_ws_room_lobby_reset(self, room: dict) -> None:
+        self.room_code = room.get("room_code", self.room_code)
+        self.udp.send_to_game({"event": "room_lobby_reset", **room})
+        self.room_lobby_reset.emit(room)
+
+    def _on_ws_room_closed(self, data: dict) -> None:
+        log.info("WS: room_closed — reason=%s", data.get("reason"))
+        self.in_room = False
+        self.in_room_race = False
+        self.room_code = ""
+        self.udp.send_to_game({"event": "room_closed", **data})
+        self.room_closed.emit(data)
+
+    def _on_ws_confirm_leave(self) -> None:
+        self.in_room = False
+        self.in_room_race = False
+        self.room_code = ""
+        self.udp.send_to_game({"event": "confirm_leave"})
+        self.room_left.emit()
+
+    def _on_ws_room_inactivity_warning(self) -> None:
+        self.udp.send_to_game({"event": "room_inactivity_warning"})
+        self.room_inactivity_warning.emit()

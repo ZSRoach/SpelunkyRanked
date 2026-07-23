@@ -38,6 +38,25 @@ class WSClient(QObject):
     auto_forfeit = Signal(dict)            # {elo_change, placements_remaining} — grace expired, forfeit recorded
     verify_winner_connection = Signal()    # server asks: are bridge and game both connected?
 
+    # Signals for server → bridge events — private rooms
+    room_joined = Signal(dict)             # full room snapshot {room_code, host_id, players, config, phase}
+    room_players_update = Signal(dict)     # {players, host_id}
+    room_config_update = Signal(dict)      # config
+    room_alert = Signal(list)              # issues
+    room_starting = Signal(dict)           # {seed, category, config} — critical, ack required
+    room_live = Signal(dict)               # {players} — critical, ack required
+    room_progress = Signal(dict)           # {player_id, player_name, area, level, theme}
+    room_player_finished = Signal(dict)    # {steam_id, player_name, completion_time}
+    confirm_completion = Signal(dict)      # {steam_id, player_name, completion_time} — to the finisher only
+    room_player_forfeited = Signal(dict)   # {steam_id, player_name}
+    confirm_forfeit = Signal(dict)         # {steam_id, player_name} — to the forfeiter only
+    room_result = Signal(dict)             # {participants, finalize_reason}
+    room_time_remaining = Signal(int)      # seconds
+    room_lobby_reset = Signal(dict)        # same shape as room_joined
+    room_closed = Signal(dict)             # {reason}
+    confirm_leave = Signal()               # to whoever just sent leave_room
+    room_inactivity_warning = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._sio: socketio.Client | None = None
@@ -80,6 +99,23 @@ class WSClient(QObject):
         sio.on("reconnected", self._on_reconnected, namespace=WS_NAMESPACE)
         sio.on("auto_forfeit", self._on_auto_forfeit, namespace=WS_NAMESPACE)
         sio.on("verify_winner_connection", self._on_verify_winner_connection, namespace=WS_NAMESPACE)
+        sio.on("room_joined", self._on_room_joined, namespace=WS_NAMESPACE)
+        sio.on("room_players_update", self._on_room_players_update, namespace=WS_NAMESPACE)
+        sio.on("room_config_update", self._on_room_config_update, namespace=WS_NAMESPACE)
+        sio.on("room_alert", self._on_room_alert, namespace=WS_NAMESPACE)
+        sio.on("room_starting", self._on_room_starting, namespace=WS_NAMESPACE)
+        sio.on("room_live", self._on_room_live, namespace=WS_NAMESPACE)
+        sio.on("room_progress", self._on_room_progress, namespace=WS_NAMESPACE)
+        sio.on("room_player_finished", self._on_room_player_finished, namespace=WS_NAMESPACE)
+        sio.on("confirm_completion", self._on_confirm_completion, namespace=WS_NAMESPACE)
+        sio.on("room_player_forfeited", self._on_room_player_forfeited, namespace=WS_NAMESPACE)
+        sio.on("confirm_forfeit", self._on_confirm_forfeit, namespace=WS_NAMESPACE)
+        sio.on("room_result", self._on_room_result, namespace=WS_NAMESPACE)
+        sio.on("room_time_remaining", self._on_room_time_remaining, namespace=WS_NAMESPACE)
+        sio.on("room_lobby_reset", self._on_room_lobby_reset, namespace=WS_NAMESPACE)
+        sio.on("room_closed", self._on_room_closed, namespace=WS_NAMESPACE)
+        sio.on("confirm_leave", self._on_confirm_leave, namespace=WS_NAMESPACE)
+        sio.on("room_inactivity_warning", self._on_room_inactivity_warning, namespace=WS_NAMESPACE)
 
     def reconnect(self) -> None:
         """Create a fresh client and reconnect. Call from main thread.
@@ -174,6 +210,40 @@ class WSClient(QObject):
         if self._sio and self._sio.connected:
             self._sio.emit("winner_connection_failed", {}, namespace=WS_NAMESPACE)
 
+    # ---- Private rooms sends (create_room excluded — that's a REST call, see api_client.rooms_create) ----
+
+    def send_join_room(self, room_code: str) -> None:
+        if self._sio and self._sio.connected:
+            self._sio.emit("join_room", {"room_code": room_code}, namespace=WS_NAMESPACE)
+
+    def send_leave_room(self) -> None:
+        if self._sio and self._sio.connected:
+            self._sio.emit("leave_room", {}, namespace=WS_NAMESPACE)
+
+    def send_update_room_config(self, config: dict) -> None:
+        if self._sio and self._sio.connected:
+            self._sio.emit("update_room_config", {"config": config}, namespace=WS_NAMESPACE)
+
+    def send_start_room(self) -> None:
+        if self._sio and self._sio.connected:
+            self._sio.emit("start_room", {}, namespace=WS_NAMESPACE)
+
+    def send_room_forfeit(self) -> None:
+        if self._sio and self._sio.connected:
+            self._sio.emit("room_forfeit", {}, namespace=WS_NAMESPACE)
+
+    def send_room_seed_change(self) -> None:
+        if self._sio and self._sio.connected:
+            self._sio.emit("room_seed_change", {}, namespace=WS_NAMESPACE)
+
+    def send_room_force_end(self) -> None:
+        if self._sio and self._sio.connected:
+            self._sio.emit("room_force_end", {}, namespace=WS_NAMESPACE)
+
+    def send_room_dismiss_inactivity_warning(self) -> None:
+        if self._sio and self._sio.connected:
+            self._sio.emit("room_dismiss_inactivity_warning", {}, namespace=WS_NAMESPACE)
+
     # ---- socketio event handlers (called from socketio's internal thread) ----
 
     def _on_connect(self):
@@ -239,6 +309,58 @@ class WSClient(QObject):
 
     def _on_verify_winner_connection(self, data=None):
         self.verify_winner_connection.emit()
+
+    def _on_room_joined(self, data):
+        self.room_joined.emit(data if isinstance(data, dict) else {})
+
+    def _on_room_players_update(self, data):
+        data = data or {}
+        self.room_players_update.emit({"players": data.get("players", []), "host_id": data.get("host_id")})
+
+    def _on_room_config_update(self, data):
+        self.room_config_update.emit((data or {}).get("config", {}))
+
+    def _on_room_alert(self, data):
+        self.room_alert.emit((data or {}).get("issues", []))
+
+    def _on_room_starting(self, data):
+        self.room_starting.emit(data if isinstance(data, dict) else {})
+
+    def _on_room_live(self, data):
+        self.room_live.emit(data if isinstance(data, dict) else {})
+
+    def _on_room_progress(self, data):
+        self.room_progress.emit(data if isinstance(data, dict) else {})
+
+    def _on_room_player_finished(self, data):
+        self.room_player_finished.emit(data if isinstance(data, dict) else {})
+
+    def _on_confirm_completion(self, data):
+        self.confirm_completion.emit(data if isinstance(data, dict) else {})
+
+    def _on_room_player_forfeited(self, data):
+        self.room_player_forfeited.emit(data if isinstance(data, dict) else {})
+
+    def _on_confirm_forfeit(self, data):
+        self.confirm_forfeit.emit(data if isinstance(data, dict) else {})
+
+    def _on_room_result(self, data):
+        self.room_result.emit(data if isinstance(data, dict) else {})
+
+    def _on_room_time_remaining(self, data):
+        self.room_time_remaining.emit((data or {}).get("seconds", 0))
+
+    def _on_room_lobby_reset(self, data):
+        self.room_lobby_reset.emit(data if isinstance(data, dict) else {})
+
+    def _on_room_closed(self, data):
+        self.room_closed.emit(data if isinstance(data, dict) else {})
+
+    def _on_confirm_leave(self, data=None):
+        self.confirm_leave.emit()
+
+    def _on_room_inactivity_warning(self, data=None):
+        self.room_inactivity_warning.emit()
 
     def _do_connect(self, sio: socketio.Client) -> None:
         """Run on a background thread. Uses the captured sio instance, not self._sio,

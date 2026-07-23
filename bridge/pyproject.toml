@@ -1,6 +1,6 @@
 [project]
 name = "S2RankedBridge"
-version = "1.12"
+version = "1.20"
 description = "Bridge for S2 Ranked"
 readme = "../README.md"
 requires-python = ">=3.10"

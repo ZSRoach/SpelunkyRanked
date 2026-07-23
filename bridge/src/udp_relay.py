@@ -53,6 +53,17 @@ class UDPRelay(QObject):
     game_close_postmatch = Signal()
     game_rank_reveal_complete = Signal()
 
+    # Signals for game -> bridge events — private rooms
+    game_create_room = Signal()
+    game_join_room = Signal(str)               # room_code
+    game_leave_room = Signal()
+    game_update_room_config = Signal(dict)      # config
+    game_start_room = Signal()
+    game_room_forfeit = Signal()
+    game_room_seed_change = Signal()
+    game_room_force_end = Signal()
+    game_room_dismiss_inactivity_warning = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._sock: socket.socket | None = None
@@ -195,6 +206,24 @@ class UDPRelay(QObject):
                 self.game_close_postmatch.emit()
             elif event == "rank_reveal_complete":
                 self.game_rank_reveal_complete.emit()
+            elif event == "create_room":
+                self.game_create_room.emit()
+            elif event == "join_room":
+                self.game_join_room.emit(str(data.get("room_code", "")))
+            elif event == "leave_room":
+                self.game_leave_room.emit()
+            elif event == "update_room_config":
+                self.game_update_room_config.emit(data.get("config", {}) or {})
+            elif event == "start_room":
+                self.game_start_room.emit()
+            elif event == "room_forfeit":
+                self.game_room_forfeit.emit()
+            elif event == "room_seed_change":
+                self.game_room_seed_change.emit()
+            elif event == "room_force_end":
+                self.game_room_force_end.emit()
+            elif event == "room_dismiss_inactivity_warning":
+                self.game_room_dismiss_inactivity_warning.emit()
 
     def _ping_loop(self) -> None:
         while self._running:

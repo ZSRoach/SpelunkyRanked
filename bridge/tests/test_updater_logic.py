@@ -58,11 +58,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import updater_service
 import bridge_controller
 from bridge_controller import BridgeController
+from config import BRIDGE_VERSION, BRIDGE_COMPONENT_VERSION, GAME_COMPONENT_VERSION
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+# Sentinels for "definitely not the current local version" — used by mismatch tests so
+# they stay correct across version bumps instead of hardcoding a version that eventually
+# becomes the real local version.
+_OLDER_VERSION = BRIDGE_VERSION - 0.01
+_OLDER_BRIDGE_COMPONENT = "0.0.1"
+
 
 def make_controller(**state_overrides) -> BridgeController:
     """Instantiate a BridgeController and apply any state overrides."""
@@ -72,8 +80,8 @@ def make_controller(**state_overrides) -> BridgeController:
     return ctrl
 
 
-def apply_version(ctrl, version=1.12, bridge_comp="1.12.0", game_comp="1.12.0"):
-    """Call _apply_version_info with standard values."""
+def apply_version(ctrl, version=BRIDGE_VERSION, bridge_comp=BRIDGE_COMPONENT_VERSION, game_comp=GAME_COMPONENT_VERSION):
+    """Call _apply_version_info with values matching the current local bridge version."""
     ctrl._apply_version_info({
         "version": version,
         "game_mod_download_url": "https://example.com/game",
@@ -187,23 +195,23 @@ class TestBridgeMismatchDetected(unittest.TestCase):
 
     def test_standard_version_mismatch(self):
         ctrl = make_controller()
-        apply_version(ctrl, version=1.11)  # bridge has 1.12
+        apply_version(ctrl, version=_OLDER_VERSION)  # server standard version is stale
         self.assertTrue(ctrl._bridge_version_mismatch_detected())
 
     def test_component_mismatch_while_standard_matches(self):
         ctrl = make_controller()
-        apply_version(ctrl, bridge_comp="1.11.0")  # local has 1.12.0
+        apply_version(ctrl, bridge_comp=_OLDER_BRIDGE_COMPONENT)  # server component is stale
         self.assertTrue(ctrl._bridge_version_mismatch_detected())
 
     def test_no_mismatch_when_server_has_no_component_version(self):
         # Old server that doesn't send component_versions — no false positive
         ctrl = make_controller()
-        ctrl._apply_version_info({"version": 1.12})
+        ctrl._apply_version_info({"version": BRIDGE_VERSION})
         self.assertFalse(ctrl._bridge_version_mismatch_detected())
 
     def test_both_mismatch(self):
         ctrl = make_controller()
-        apply_version(ctrl, version=1.11, bridge_comp="1.11.0")
+        apply_version(ctrl, version=_OLDER_VERSION, bridge_comp=_OLDER_BRIDGE_COMPONENT)
         self.assertTrue(ctrl._bridge_version_mismatch_detected())
 
 
@@ -256,7 +264,7 @@ class TestDeferredVersionMismatch(unittest.TestCase):
     def _ctrl_with_mismatch_state(self, **active_flags):
         """Controller with a server-side bridge component mismatch and active match state."""
         ctrl = make_controller(**active_flags)
-        apply_version(ctrl, bridge_comp="1.11.0")  # server says 1.11.0, local has 1.12.0
+        apply_version(ctrl, bridge_comp=_OLDER_BRIDGE_COMPONENT)  # server component is stale
         return ctrl
 
     # ---- bridge mismatch is deferred while match is active ----

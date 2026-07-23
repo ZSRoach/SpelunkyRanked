@@ -50,6 +50,19 @@ def queue_leave(steam_id: str, token: str, ts: int) -> dict:
     return resp.json()
 
 
+def rooms_create(steam_id: str, token: str, ts: int) -> dict:
+    """Create a private room. Unlike the other room actions (which are WS events), this
+    is a REST endpoint — the server has no WS push for the creator, so the JSON response
+    itself is the room snapshot (same shape as the room_joined WS event)."""
+    resp = requests.post(
+        f"{SERVER_URL}/rooms/create",
+        json={"steam_id": steam_id, "token": token, "ts": ts},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def queue_stats() -> dict:
     resp = requests.get(f"{SERVER_URL}/queue/stats", timeout=10)
     resp.raise_for_status()
