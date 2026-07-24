@@ -1,7 +1,7 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.20',
-    component_version = '1.20.0',
+    version = '1.21',
+    component_version = '1.21.0',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -304,7 +304,6 @@ lowUseViolationItems = {
     ENT_TYPE.ITEM_CLONEGUN,
     ENT_TYPE.ITEM_CAMERA,
     ENT_TYPE.ITEM_TELEPORTER,
-    ENT_TYPE.ITEM_MATTOCK,
     ENT_TYPE.ITEM_BOOMERANG,
     ENT_TYPE.ITEM_MACHETE,
     ENT_TYPE.ITEM_PLASMACANNON,
@@ -322,7 +321,6 @@ chainLowUseViolationItems = {
     ENT_TYPE.ITEM_BOOMERANG,
     ENT_TYPE.ITEM_MACHETE,
     ENT_TYPE.ITEM_PLASMACANNON,
-    ENT_TYPE.ITEM_SCEPTER,
 }
 chainLowCOUseViolationItems = {
     ENT_TYPE.ITEM_WEBGUN,
@@ -537,6 +535,34 @@ hadAnkhThisRun = false
 hadExcaliburThisRun = false
 hadScepterThisRun = false
 violate = false
+violationList = {
+    lowHold = false,
+    logical = false,
+    mount = false,
+    lowUse = false,
+    teleportViolation = false,
+    noGold = false,
+    pet = false,
+    noCrown = false,
+    noTablet = false,
+    noAnkh = false,
+    noUshabti = false,
+    noTidepool = false,
+    noExcalibur = false,
+    noAbzu = false,
+    noTemple = false,
+    noScepter = false,
+    noCog = false,
+    noDuat = false,
+    noJungle = false,
+    noVolcana = false,
+    noChild = false,
+    noEggplant = false,
+    pacifist = false,
+}
+
+
+
 --controls process of loading checkpoint
 loadProg = false
 loadItems = false
@@ -1012,10 +1038,16 @@ function defaultPrivate()
     privateDoCheckpoints = true
     privateCheckpointDistance = 3
 end
+-- resets violation list
+function violationReset()
+    for violation, _ in pairs(violationList) do
+        violationList[violation] = false
+    end
+end
 
 --camp functions
 function spawnSign()
-    if not inPrivateRoom or not pracSignOpen then
+    if not inPrivateRoom and not pracSignOpen then
         mainMenuOpen = false
     end
     local signUID = spawn_entity(ENT_TYPE.ITEM_SPEEDRUN_SIGN, 46, 84, LAYER.FRONT, 0, 0)
@@ -1134,7 +1166,7 @@ function renderMatchInfoToast(render_ctx)
     for i = 0, 3, 1 do
         renderTexture(render_ctx,TEXTURE.DATA_TEXTURES_MENU_BASIC_2,5,3+i,y2,x2+i*(scale/10),scale)
     end
-    renderTextLeft(render_ctx, "["..opponentelo.."] "..opponent, (x+.05)+(scale/10)*.2,(y2-(scale/20))*ratio, .008, white)
+    renderTextLeft(render_ctx, "["..opponentelo.."] "..opponent, (x+.05)+(scale/10)*.2,(y2-(scale/20))*ratio, .0008, white)
 end
 
 
@@ -3980,6 +4012,9 @@ function timedOps()
         while server:read(function(message, bridgeAddress)
             local data = json.decode(message)
             local event = data.event
+            if event ~= "ping" then
+                log_print("[Event Received] "..event)
+            end
             if event == nil then 
                 log_print("[WARN] No event received on UDP read.")
                 return 
@@ -3993,6 +4028,9 @@ function timedOps()
                 udpSend("version_response")
             elseif event == "version_mismatch" then
                 bridgeConnected = false
+                if not messageList then
+                    processChat("Your game mod or ranked app is out-of-date. Please update it manually or with the updater!","ERROR")
+                end
             -- Match found
             elseif event == "is_banned" then
                 inQueue = false
@@ -4410,6 +4448,9 @@ end
 --udp functions
 
 function udpSend(msg, argList)
+    if msg ~= "pong" then
+        log_print("[Event Sent] "..msg)
+    end
     argList = argList or nil
     if msg == "ping" then
         server:send(json.encode({ event = "ping"}), bridgeAddress)
@@ -4523,8 +4564,14 @@ function determineTheme(world, level)
         elseif world == 2 then
             if privateWorld2 == 1 then
                 return THEME.JUNGLE
-            else
+            elseif privateWorld2 == 2 then
                 return THEME.VOLCANA
+            else
+                if jungle then
+                    return THEME.JUNGLE
+                else 
+                    return THEME.VOLCANA
+                end
             end
         elseif world == 3 then
             return THEME.OLMEC
@@ -4535,13 +4582,29 @@ function determineTheme(world, level)
                 else
                     return THEME.TIDE_POOL
                 end
-            else
+            elseif privateWorld4 == 2 then
                 if level == 4 and privateModifiers.chain then
                     return THEME.DUAT
                 elseif level == 3 and privateModifiers.chain then
                     return THEME.CITY_OF_GOLD
                 else
                     return THEME.TEMPLE
+                end
+            else
+                if tidepool then
+                    if level == 4 and privateModifiers.chain then
+                        return THEME.ABZU
+                    else
+                        return THEME.TIDE_POOL
+                    end
+                else
+                    if level == 4 and privateModifiers.chain then
+                        return THEME.DUAT
+                    elseif level == 3 and privateModifiers.chain then
+                        return THEME.CITY_OF_GOLD
+                    else
+                        return THEME.TEMPLE
+                    end
                 end
             end
         elseif world == 5 then
@@ -4564,79 +4627,47 @@ function determineTheme(world, level)
             end
         end
     elseif practiceStarted then
-        if pracCatMode then
-            if world == 1 then
-                return THEME.DWELLING
-            elseif world == 2 then
-                if jungle then
-                    return THEME.JUNGLE
+        if world == 1 then
+            return THEME.DWELLING
+        elseif world == 2 then
+            if jungle then
+                return THEME.JUNGLE
+            else
+                return THEME.VOLCANA
+            end
+        elseif world == 3 then
+            return THEME.OLMEC
+        elseif world == 4 then
+            if tidepool then
+                if level == 4 and (categoryType == "Abzu%" or categoryType == "No TP Abzu%" or categoryType == "Chain Low% Abzu") then
+                    return THEME.ABZU
                 else
-                    return THEME.VOLCANA
+                    return THEME.TIDE_POOL
                 end
-            elseif world == 3 then
-                return THEME.OLMEC
-            elseif world == 4 then
-                if tidepool then
-                    if level == 4 and (categoryType == "Abzu%" or categoryType == "No TP Abzu%" or categoryType == "Chain Low% Abzu") then
-                        return THEME.ABZU
-                    else
-                        return THEME.TIDE_POOL
-                    end
+            else
+                if level == 4 and (categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "Chain Low% Duat") then
+                    return THEME.DUAT
+                elseif level == 3 and (categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "Chain Low% Duat") then
+                    return THEME.CITY_OF_GOLD
                 else
-                    if level == 4 and (categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "Chain Low% Duat") then
-                        return THEME.DUAT
-                    elseif level == 3 and (categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "Chain Low% Duat") then
-                        return THEME.CITY_OF_GOLD
-                    else
-                        return THEME.TEMPLE
-                    end
-                end
-            elseif world == 5 then
-                return THEME.ICE_CAVES
-            elseif world == 6 then
-                if level == 4 then
-                    return THEME.TIAMAT
-                else
-                    return THEME.NEO_BABYLON
-                end
-            elseif world == 7 then
-                if level == 4 then
-                    return THEME.HUNDUN
-                elseif level > 4 then
-                    return THEME.COSMIC_OCEAN
-                else
-                    return THEME.SUNKEN_CITY
+                    return THEME.TEMPLE
                 end
             end
-        else
-            if world == 1 then
-                return THEME.DWELLING
-            elseif world == 2 then
-                return THEME.JUNGLE
-            elseif world == 3 then
-                return THEME.VOLCANA
-            elseif world == 4 then
-                return THEME.OLMEC
-            elseif world == 5 then
-                return THEME.TIDE_POOL
-            elseif world == 6 then
-                return THEME.TEMPLE
-            elseif world == 7 then
-                return THEME.ICE_CAVES
-            elseif world == 8 then
-                if level == 4 then
-                    return THEME.TIAMAT
-                else
-                    return THEME.NEO_BABYLON
-                end
-            elseif world == 9 then
-                if level == 4 then
-                    return THEME.HUNDUN
-                elseif level > 4 then
-                    return THEME.COSMIC_OCEAN
-                else
-                    return THEME.SUNKEN_CITY
-                end
+        elseif world == 5 then
+            return THEME.ICE_CAVES
+        elseif world == 6 then
+            if level == 4 then
+                return THEME.TIAMAT
+            else
+                return THEME.NEO_BABYLON
+            end
+        elseif world == 7 then
+            if level == 4 then
+                return THEME.HUNDUN
+            elseif level > 4 then
+                return THEME.COSMIC_OCEAN
+            else
+                return THEME.SUNKEN_CITY
             end
         end
         
@@ -5091,40 +5122,27 @@ end
 function practiceWarp()
     math.randomseed(os.time())
     seed = tonumber(generatePracticeSeed(),16)
-    if pracCatMode then
-        force11()
-    else
-        local ind = getLevelIndex(pracWorld,pracLevel)
-        local world
-        if pracWorld == 3 then
-            world = 2
-        elseif pracWorld == 4 then
-            world = 3
-        elseif pracWorld == 5 then
-            world = 4
-        elseif pracWorld == 6 then
-            world = 4
-        elseif pracWorld == 7 then
-            world = 5
-        elseif pracWorld == 8 then
-            world = 6
-        elseif pracWorld == 9 then
-            world = 7
-        end
-        setSeed(ind)
-        state.screen_last = state.screen
-        state.screen_next = SCREEN.LEVEL
-        state.theme_start = determineTheme(pracWorld,pracLevel)--handles weird worlds properly
-        state.level_start = pracLevel
-        state.world_start = world
-        state.world_next = world
-        state.level_next = pracLevel
-        state.theme_next = determineTheme(pracWorld,pracLevel) --handles weird worlds properly
-        state.level_count = ind-1
-        state.loading = FADE.OUT
-        state.quest_flags = set_flag(state.quest_flags, 1)
-        state.fade_timer = 1
+    force11()
+end
+
+function pracWorldTranslate(world)
+    local w = pracWorld
+    if world == 3 then
+        w = 2
+    elseif world == 4 then
+        w = 3
+    elseif world == 5 then
+        w = 4
+    elseif world == 6 then
+        w = 4
+    elseif world == 7 then
+        w = 5
+    elseif world == 8 then
+        w = 6
+    elseif world == 9 then
+        w = 7
     end
+    return w
 end
 
 function saveProgress()
@@ -5380,15 +5398,13 @@ end
 function loadPracEnts()
     local player = players[1]
     local powerups = pracPassives
-    if pracPack then
-        table.insert(powerups, pracPack)
-    end
 
+    pick_up(player.uid, spawn(pracPack, 0, 0, LAYER.PLAYER, 0, 0))
     --powerups
     for i, powerup in ipairs(powerups) do
         if powerup ~= 0 then
             if powerup == ENT_TYPE.ITEM_JETPACK or powerup == ENT_TYPE.ITEM_HOVERPACK or powerup == ENT_TYPE.ITEM_POWERPACK or powerup == ENT_TYPE.ITEM_TELEPORTER_BACKPACK or powerup == ENT_TYPE.ITEM_CAPE or powerup == ENT_TYPE.ITEM_VLADS_CAPE then
-                pick_up(player.uid, spawn(powerup, 0, 0, LAYER.PLAYER, 0, 0))
+                --nothing
             else
                 player:give_powerup(powerup)
             end
@@ -5396,7 +5412,7 @@ function loadPracEnts()
     end
 
     --held item
-    if pracHeld ~= 0 then
+    if pracHeld then
         heldItem = spawn(pracHeld, 0,0, LAYER.PLAYER,0,0)
         pick_up(player.uid, heldItem)
     end
@@ -5531,11 +5547,11 @@ function doWarp()
 end
 
 function forceSeed()
-    set_adventure_seed(seed,seed)
+    set_adventure_seed(seed & f16,seed & f16)
 end
 
 function setSeed(levelNum)
-    set_adventure_seed(seed, seed*levelNum & f16)
+    set_adventure_seed(seed & f16, seed*levelNum & f16)
 end 
 
 function generatePracticeSeed()
@@ -5629,7 +5645,7 @@ function setCache()
 end
 
 function coCheck()
-    if categoryType ~= "Cosmic Ocean%" then return end
+    if categoryType ~= "Cosmic Ocean%" and (pracCategory ~= "Cosmic Ocean%" and practiceStarted) then return end
     if inPrivateRoom and privateRunCustom then return end
     -- run every reset before warp
     if furthestLevel[1] < 7 then 
@@ -5665,12 +5681,15 @@ function preGenHandle()
     if practiceStarted then
         if pracCatMode then
             if pracCategory == "Cosmic Ocean%" then
+                if pracCheckpoints then
+                    saveProgress()
+                end
                 loadInventory()
             elseif pracCheckpoints then
                 loadInventory()
                 saveProgress()
             end
-        elseif state.level == pracLevel and state.world == pracWorld then
+        elseif state.level == pracLevel and state.world == pracWorldTranslate(pracWorld) then
             loadPracItems()
         end
     end
@@ -5682,6 +5701,7 @@ function transitionHandle()
         if violate then
             force11()
             violate = false
+            violationReset()
         end
     end
     if practiceStarted and pracCatMode and pracCheckpoints then
@@ -5707,12 +5727,29 @@ function levelHandle()
         if violate then
             force11()
             violate = false
+            violationReset()
         end
         loadEntities()
         newFurthest()
         setCache()
         local payload = {state.world, state.level, state.theme}
         udpSend("progress", payload)
+        if inPrivateRoom and privateRunCustom then
+            if state.world == 2 and privateWorld2 == 0 then
+                if state.theme == THEME.JUNGLE then
+                    jungle = true
+                else
+                    jungle = false
+                end
+            end
+            if state.world == 4 and privateWorld4 == 0 then
+                if state.theme == THEME.TIDE_POOL then
+                    tidepool = true
+                else
+                    tidepool = false
+                end
+            end
+        end
     end
     if practiceStarted then
         if pracCatMode then
@@ -5720,13 +5757,21 @@ function levelHandle()
                 doWarp()
                 practiceReset = false
             end
+            if pracCategory == "Cosmic Ocean%" and state.level == 5 and state.world == 7 then
+                loadEntities()
+            end
             if pracCheckpoints then
                 loadEntities()
                 newFurthest()
                 setCache()
             end
-        elseif state.level == pracLevel and state.world == pracWorld then
-            loadPracEnts()
+        else
+            furthestLevel = {pracWorldTranslate(pracWorld),pracLevel}
+            doWarp()
+            practiceReset = false
+            if state.level == pracLevel and state.world == pracWorldTranslate(pracWorld) then
+                loadPracEnts()
+            end
         end
     end
 end
@@ -5758,7 +5803,7 @@ function guiframeHandle()
         warpToCheckpoint()
     end
     if practiceStarted then
-        if pracCatMode and pracCheckpoints then
+        if (pracCatMode and pracCheckpoints) or (pracCatMode and pracCategory == "Cosmic Ocean%") or not pracCatMode then
             warpToCheckpoint()
         end
         testWin()
@@ -5797,12 +5842,7 @@ function resetHandle()
         if (pracCatMode and not pracCheckpoints) or (not pracCatMode) then
             math.randomseed(os.time())
             seed = tonumber(generatePracticeSeed(),16)
-            if not pracCatMode then
-                local ind = getLevelIndex(pracWorld,pracLevel)
-                setSeed(ind)
-            else
-                forceSeed()
-            end
+            forceSeed()
         else
             forceSeed()
         end
@@ -5834,7 +5874,10 @@ function inLevelRequirements() --checks for category violations and requirements
             local items = entity_get_items_by(players[1].uid,lowHoldViolationItems,0)
             if #items > 0 then
                 violated = true
-                log_print("low hold violation")
+                if not violationList.lowHold then
+                    violationList.lowHold = true
+                    log_print("low hold violation")
+                end
             end
             --other powerups
             items = entity_get_items_by(players[1].uid, 0, MASK.LOGICAL)
@@ -5848,7 +5891,10 @@ function inLevelRequirements() --checks for category violations and requirements
                     end
                     if not inList then
                         violated = true
-                        log_print("logical violation")
+                        if not violationList.logical then
+                            violationList.logical = true
+                            log_print("logical violation")
+                        end
                     end
                     
                 end
@@ -5863,16 +5909,23 @@ function inLevelRequirements() --checks for category violations and requirements
                 if get_entity(items[i]).rider_uid == players[1].uid then
                     if get_entity(items[i]).tamed then
                         violated = true
-                        log_print("mount violation")
+                        if not violationList.mount then
+                            violationList.mount = true
+                            log_print("mount violation")
+                        end
                     end
                 end
             end
+
             --using restricted item
             items = entity_get_items_by(players[1].uid, lowUseViolationItems, 0)
             for i, item in ipairs(items) do
                 if test_flag(read_input(players[1].uid),2) and not test_flag(read_input(players[1].uid),12) then
                     violated = true
-                    log_print("item used violation")
+                    if not violationList.lowUse then
+                        violationList.lowUse = true
+                        log_print("low use violation")
+                    end
                 end
             end
         end
@@ -5882,7 +5935,10 @@ function inLevelRequirements() --checks for category violations and requirements
                 if get_entity_type(item) == ENT_TYPE.ITEM_TELEPORTER then
                     if test_flag(read_input(players[1].uid),2) and not test_flag(read_input(players[1].uid),12) then
                         violated = true
-                        log_print("teleport violation")
+                        if not violationList.teleportViolation then
+                            violationList.teleportViolation = true
+                            log_print("teleport violation")
+                        end
                     end
                 end
                 --unsure how to implement telepack check at present (need to verify player is not grounded)
@@ -5893,7 +5949,10 @@ function inLevelRequirements() --checks for category violations and requirements
         if privateModifiers.noGold or privateModifiers.noPercent then--no gold
             if players[1].inventory.money > 0 then
                 violated = true
-                log_print("no gold violation")
+                if not violationList.noGold then
+                    violationList.noGold = true
+                    log_print("no gold violation")
+                end
             end
         end
         if privateModifiers.chain then --chain
@@ -5914,7 +5973,10 @@ function inLevelRequirements() --checks for category violations and requirements
                 local items = entity_get_items_by(players[1].uid,lowHoldViolationItems,0)
                 if #items > 0 then
                     violated = true
-                    log_print("low hold violation")
+                    if not violationList.lowHold then
+                        violationList.lowHold = true
+                        log_print("low hold violation")
+                    end
                 end
                 --other powerups
                 items = entity_get_items_by(players[1].uid, 0, MASK.LOGICAL)
@@ -5928,7 +5990,10 @@ function inLevelRequirements() --checks for category violations and requirements
                         end
                         if not inList then
                             violated = true
-                            log_print("logical violation")
+                            if not violationList.logical then
+                                violationList.logical = true
+                                log_print("logical violation")
+                            end
                         end
                         
                     end
@@ -5943,7 +6008,10 @@ function inLevelRequirements() --checks for category violations and requirements
                     if get_entity(items[i]).rider_uid == players[1].uid then
                         if get_entity(items[i]).tamed then
                             violated = true
-                            log_print("mount violation")
+                            if not violationList.mount then
+                                violationList.mount = true
+                                log_print("mount violation")
+                            end
                         end
                     end
                 end
@@ -5952,7 +6020,10 @@ function inLevelRequirements() --checks for category violations and requirements
                 for i, item in ipairs(items) do
                     if test_flag(read_input(players[1].uid),2) and not test_flag(read_input(players[1].uid),12) then
                         violated = true
-                        log_print("item used violation")
+                        if not violationList.lowUse then
+                            violationList.lowUse = true
+                            log_print("low use violation")
+                        end
                     end
                 end
             else -- does go CO
@@ -5960,7 +6031,10 @@ function inLevelRequirements() --checks for category violations and requirements
                 local items = entity_get_items_by(players[1].uid,lowHoldViolationItems,0)
                 if #items > 0 then
                     violated = true
-                    log_print("low hold violation")
+                    if not violationList.lowHold then
+                        violationList.lowHold = true
+                        log_print("low hold violation")
+                    end
                 end
                 --other powerups
                 items = entity_get_items_by(players[1].uid, 0, MASK.LOGICAL)
@@ -5974,7 +6048,10 @@ function inLevelRequirements() --checks for category violations and requirements
                         end
                         if not inList then
                             violated = true
-                            log_print("logical violation")
+                            if not violationList.logical then
+                                violationList.logical = true
+                                log_print("logical violation")
+                            end
                         end
                         
                     end
@@ -5989,7 +6066,10 @@ function inLevelRequirements() --checks for category violations and requirements
                     if get_entity(items[i]).rider_uid == players[1].uid then
                         if get_entity(items[i]).tamed then
                             violated = true
-                            log_print("mount violation")
+                            if not violationList.mount then
+                                violationList.mount = true
+                                log_print("mount violation")
+                            end
                         end
                     end
                 end
@@ -5998,7 +6078,10 @@ function inLevelRequirements() --checks for category violations and requirements
                 for i, item in ipairs(items) do
                     if test_flag(read_input(players[1].uid),2) and not test_flag(read_input(players[1].uid),12) then
                         violated = true
-                        log_print("item used violation")
+                        if not violationList.lowUse then
+                            violationList.lowUse = true
+                            log_print("low use violation")
+                        end
                     end
                 end
             end
@@ -6012,6 +6095,10 @@ function inLevelRequirements() --checks for category violations and requirements
             local flag = state.journal_flags
             if not test_flag(flag, 1) then
                 violated = true
+                if not violationList.pacifist then
+                    violationList.pacifist = true
+                    log_print("pacifist violation")
+                end
             end
         end
     else
@@ -6021,7 +6108,10 @@ function inLevelRequirements() --checks for category violations and requirements
             local items = entity_get_items_by(players[1].uid,lowHoldViolationItems,0)
             if #items > 0 then
                 violated = true
-                log_print("low hold violation")
+                if not violationList.lowHold then
+                    violationList.lowHold = true
+                    log_print("low hold violation")
+                end
             end
             --other powerups
             items = entity_get_items_by(players[1].uid, 0, MASK.LOGICAL)
@@ -6035,7 +6125,10 @@ function inLevelRequirements() --checks for category violations and requirements
                     end
                     if not inList then
                         violated = true
-                        log_print("logical violation")
+                        if not violationList.logical then
+                            violationList.logical = true
+                            log_print("logical violation")
+                        end
                     end
                     
                 end
@@ -6050,7 +6143,10 @@ function inLevelRequirements() --checks for category violations and requirements
                 if get_entity(items[i]).rider_uid == players[1].uid then
                     if get_entity(items[i]).tamed then
                         violated = true
-                        log_print("mount violation")
+                        if not violationList.mount then
+                            violationList.mount = true
+                            log_print("mount violation")
+                        end
                     end
                 end
             end
@@ -6059,7 +6155,10 @@ function inLevelRequirements() --checks for category violations and requirements
             for i, item in ipairs(items) do
                 if test_flag(read_input(players[1].uid),2) and not test_flag(read_input(players[1].uid),12) then
                     violated = true
-                    log_print("item used violation")
+                    if not violationList.lowUse then
+                        violationList.lowUse = true
+                        log_print("low use violation")
+                    end
                 end
             end
         end
@@ -6070,7 +6169,10 @@ function inLevelRequirements() --checks for category violations and requirements
                 if get_entity_type(item) == ENT_TYPE.ITEM_TELEPORTER then
                     if test_flag(read_input(players[1].uid),2) and not test_flag(read_input(players[1].uid),12) then
                         violated = true
-                        log_print("teleport violation")
+                        if not violationList.teleportViolation then
+                            violationList.teleportViolation = true
+                            log_print("teleport violation")
+                        end
                     end
                 end
                 --unsure how to implement telepack check at present (need to verify player is not grounded)
@@ -6082,7 +6184,10 @@ function inLevelRequirements() --checks for category violations and requirements
         if categoryType == "No Gold Low%" or categoryType == "No TP No Gold" then
             if players[1].inventory.money > 0 then
                 violated = true
-                log_print("no gold violation")
+                if not violationList.noGold then
+                    violationList.noGold = true
+                    log_print("no gold violation")
+                end
             end
         end
         --chain mid-level requirements
@@ -6104,7 +6209,10 @@ function inLevelRequirements() --checks for category violations and requirements
             local items = entity_get_items_by(players[1].uid,lowHoldViolationItems,0)
             if #items > 0 then
                 violated = true
-                log_print("low hold violation")
+                if not violationList.lowHold then
+                    violationList.lowHold = true
+                    log_print("low hold violation")
+                end
             end
             --other powerups
             items = entity_get_items_by(players[1].uid, 0, MASK.LOGICAL)
@@ -6118,7 +6226,10 @@ function inLevelRequirements() --checks for category violations and requirements
                     end
                     if not inList then
                         violated = true
-                        log_print("logical violation")
+                        if not violationList.logical then
+                            violationList.logical = true
+                            log_print("logical violation")
+                        end
                     end
                     
                 end
@@ -6133,7 +6244,10 @@ function inLevelRequirements() --checks for category violations and requirements
                 if get_entity(items[i]).rider_uid == players[1].uid then
                     if get_entity(items[i]).tamed then
                         violated = true
-                        log_print("mount violation")
+                        if not violationList.mount then
+                            violationList.mount = true
+                            log_print("mount violation")
+                        end
                     end
                 end
             end
@@ -6142,7 +6256,10 @@ function inLevelRequirements() --checks for category violations and requirements
             for i, item in ipairs(items) do
                 if test_flag(read_input(players[1].uid),2) and not test_flag(read_input(players[1].uid),12) then
                     violated = true
-                    log_print("item used violation")
+                    if not violationList.lowUse then
+                        violationList.lowUse = true
+                        log_print("low use violation")
+                    end
                 end
             end
         end
@@ -6162,7 +6279,10 @@ function postLevelRequirements() --checks for category violations and requiremen
         if privateModifiers.lowPercent or privateModifiers.noPercent then
             if petcount > 0 and not (inventory.cursed) then
                 violated = true
-                log_print("pet violation")
+                if not violationList.pet then
+                    violationList.pet = true
+                    log_print("pet violation")
+                end
             end
         end
         if privateModifiers.chain then
@@ -6179,23 +6299,35 @@ function postLevelRequirements() --checks for category violations and requiremen
             end
             if (test_flag(state.presence_flags,2) or test_flag(state.presence_flags,3)) and not (hasCrown) then
                 violated = true
-                log_print("no crown violation")
+                if not violationList.noCrown then
+                    violationList.noCrown = true
+                    log_print("no crown violation")
+                end
             end
             if (state.world == 5 and not hasTablet) then 
                 violated = true
-                log_print("no tablet violation")
+                if not violationList.noTablet then
+                    violationList.noTablet = true
+                    log_print("no tablet violation")
+                end
             end
             --level based
             if state.screen == SCREEN.TRANSITION then
                 -- ankh check
                 if (state.world == 3 and state.level == 1 and not hadAnkhThisRun) then
                     violated = true
-                    log_print("no ankh violation")
+                    if not violationList.noAnkh then
+                        violationList.noAnkh = true
+                        log_print("no ankh violation")
+                    end
                 end
                 --correct ushabti check
                 if (state.world == 6 and state.level == 2 and (inventory.held_item ~= ENT_TYPE.ITEM_USHABTI or inventory.held_item_metadata~=state:get_correct_ushabti())) then
                     violated = true
-                    log_print("no/wrong ushabti violation")
+                    if not violationList.noUshabti then
+                        violationList.noUshabti = true
+                        log_print("wrong/no ushabti violation")
+                    end
                 end
             end
             --duat/abzu distinct
@@ -6204,17 +6336,26 @@ function postLevelRequirements() --checks for category violations and requiremen
                 if state.screen == SCREEN.TRANSITION then
                     if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TIDE_POOL) then
                         violated = true
-                        log_print("no tidepool violation")
+                        if not violationList.noTidepool then
+                            violationList.noTidepool = true
+                            log_print("no tidepool violation")
+                        end
                     end
                     --had excal
                     if (state.world == 4 and state.level == 2 and not hadExcaliburThisRun) then
                         violated = true
-                        log_print("no excalibur violation")
+                        if not violationList.noExcalibur then
+                            violationList.noExcalibur = true
+                            log_print("no excalibur violation")
+                        end
                     end
                     --going to abzu
                     if (state.world==4 and state.level == 3 and state.theme_next ~= THEME.ABZU) then
                         violated = true
-                        log_print("no abzu violation")
+                        if not violationList.noAbzu then
+                            violationList.noAbzu = true
+                            log_print("no abzu violation")
+                        end
                     end
                 end
             elseif privateWorld4 == 2 then
@@ -6222,21 +6363,33 @@ function postLevelRequirements() --checks for category violations and requiremen
                 if state.screen == SCREEN.TRANSITION then
                     if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TEMPLE) then
                         violated = true
-                        log_print("no duat violation")
+                        if not violationList.noTemple then
+                            violationList.noTemple = true
+                            log_print("no temple violation")
+                        end
                     end
                     --had scepter
                     if ((state.world == 4 and state.level == 1) and not hadScepterThisRun) then
                         violated = true
-                        log_print("no scepter violation")
+                        if not violationList.noScepter then
+                            violationList.noScepter = true
+                            log_print("no scepter violation")
+                        end
                     end
                     if (state.world == 4 and state.level == 2 and state.theme_next ~= THEME.CITY_OF_GOLD) then
                         violated = true
-                        log_print("no city of gold violation")
+                        if not violationList.noCog then
+                            violationList.noCog = true
+                            log_print("no city of gold violation")
+                        end
                     end
                     --going to duat
                     if (state.world==4 and state.level == 3 and state.theme_next ~= THEME.DUAT) then
                         violated = true
-                        log_print("no duat violation")
+                        if not violationList.noDuat then
+                            violationList.noDuat = true
+                            log_print("no duat violation")
+                        end
                     end
                 end
             end
@@ -6245,22 +6398,34 @@ function postLevelRequirements() --checks for category violations and requiremen
             --going temple
             if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TEMPLE and privateWorld4 == 2) then
                 violated = true
-                log_print("shouldve gone temple violation")
+                if not violationList.noTemple then
+                    violationList.noTemple = true
+                    log_print("no temple violation")
+                end
             end
             --going jungle
             if ((state.world == 1 and state.level == 4) and state.theme_next ~= THEME.JUNGLE and privateWorld2 == 1) then
                 violated = true
-                log_print("shouldve gone jungle violation")
+                if not violationList.noJungle then
+                    violationList.noJungle = true
+                    log_print("no jungle violation")
+                end
             end
             --going tidepool
             if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TIDE_POOL and privateWorld4 == 1) then
                 violated = true
-                log_print("shouldve gone tide violation")
+                if not violationList.noTidepool then
+                    violationList.noTidepool = true
+                    log_print("no tidepool violation")
+                end
             end
             --going volcana
             if ((state.world == 1 and state.level == 4) and state.theme_next ~= THEME.VOLCANA and privateWorld2 == 2) then
                 violated = true
-                log_print("shouldve gone volcana violation")
+                if not violationList.noVolcana then
+                    violationList.noVolcana = true
+                    log_print("shouldve gone volcana violation")
+                end
             end
         end
         if state.screen == SCREEN.TRANSITION and privateModifiers.eggplant then
@@ -6274,7 +6439,10 @@ function postLevelRequirements() --checks for category violations and requiremen
                 end
                 if not child then
                     violated = true
-                    log_print("no child violation")
+                    if not violationList.noChild then
+                        violationList.noChild = true
+                        log_print("no child violation")
+                    end
                 end
             end
             if state.world == 7 and state.level == 2 then
@@ -6286,7 +6454,10 @@ function postLevelRequirements() --checks for category violations and requiremen
                 end
                 if not hasCrown then
                     violated = true
-                    log_print("no eggplant crown violation")
+                    if not violationList.noEggplant then
+                        violationList.noEggplant = true
+                        log_print("no eggplant crown violation")
+                    end
                 end
             end
         end
@@ -6294,7 +6465,10 @@ function postLevelRequirements() --checks for category violations and requiremen
         if (categoryType == "Low%" or categoryType == "Low% J/T" or categoryType == "No Gold Low%" or categoryType == "Chain Low% Duat" or categoryType == "Chain Low% Abzu") then
             if petcount > 0 and not (inventory.cursed) then
                 violated = true
-                log_print("pet violation")
+                if not violationList.pet then
+                    violationList.pet = true
+                    log_print("pet violation")
+                end
             end
         end
         --global chain requirements
@@ -6312,23 +6486,35 @@ function postLevelRequirements() --checks for category violations and requiremen
             end
             if (test_flag(state.presence_flags,2) or test_flag(state.presence_flags,3)) and not (hasCrown) then
                 violated = true
-                log_print("no crown violation")
+                if not violationList.noCrown then
+                    violationList.noCrown = true
+                    log_print("no crown violation")
+                end
             end
             if (state.world == 5 and not hasTablet) then 
                 violated = true
-                log_print("no tablet violation")
+                if not violationList.noTablet then
+                    violationList.noTablet = true
+                    log_print("no tablet violation")
+                end
             end
             --level based
             if state.screen == SCREEN.TRANSITION then
                 -- ankh check
                 if (state.world == 3 and state.level == 1 and not hadAnkhThisRun) then
                     violated = true
-                    log_print("no ankh violation")
+                    if not violationList.noAnkh then
+                        violationList.noAnkh = true
+                        log_print("no ankh violation")
+                    end
                 end
                 --correct ushabti check
                 if (state.world == 6 and state.level == 2 and (inventory.held_item ~= ENT_TYPE.ITEM_USHABTI or inventory.held_item_metadata~=state:get_correct_ushabti())) then
                     violated = true
-                    log_print("no/wrong ushabti violation")
+                    if not violationList.noUshabti then
+                        violationList.noUshabti = true
+                        log_print("no/wrong ushabti violation")
+                    end
                 end
             end
         end
@@ -6338,17 +6524,26 @@ function postLevelRequirements() --checks for category violations and requiremen
             if state.screen == SCREEN.TRANSITION then
                 if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TIDE_POOL) then
                     violated = true
-                    log_print("no tidepool violation")
+                    if not violationList.noTidepool then
+                        violationList.noTidepool = true
+                        log_print("shouldve gone tidepool violation")
+                    end
                 end
                 --had excal
                 if (state.world == 4 and state.level == 2 and not hadExcaliburThisRun) then
                     violated = true
-                    log_print("no excalibur violation")
+                    if not violationList.noExcalibur then
+                        violationList.noExcalibur = true
+                        log_print("no excalibur violation")
+                    end
                 end
                 --going to abzu
                 if (state.world==4 and state.level == 3 and state.theme_next ~= THEME.ABZU) then
                     violated = true
-                    log_print("no abzu violation")
+                    if not violationList.noAbzu then
+                        violationList.noAbzu = true
+                        log_print("shouldve gone abzu violation")
+                    end
                 end
             end
         end
@@ -6357,21 +6552,33 @@ function postLevelRequirements() --checks for category violations and requiremen
             if state.screen == SCREEN.TRANSITION then
                 if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TEMPLE) then
                     violated = true
-                    log_print("no duat violation")
+                    if not violationList.noTemple then
+                        violationList.noTemple = true
+                        log_print("shouldve gone temple violation")
+                    end
                 end
                 --had scepter
                 if ((state.world == 4 and state.level == 1) and not hadScepterThisRun) then
                     violated = true
-                    log_print("no scepter violation")
+                    if not violationList.noScepter then
+                        violationList.noScepter = true
+                        log_print("no scepter violation")
+                    end
                 end
                 if (state.world == 4 and state.level == 2 and state.theme_next ~= THEME.CITY_OF_GOLD) then
                     violated = true
-                    log_print("no city of gold violation")
+                    if not violationList.noCog then
+                        violationList.noCog = true
+                        log_print("no city of gold violation")
+                    end
                 end
                 --going to duat
                 if (state.world==4 and state.level == 3 and state.theme_next ~= THEME.DUAT) then
                     violated = true
-                    log_print("no duat violation")
+                    if not violationList.noDuat then
+                        violationList.noDuat = true
+                        log_print("no duat violation")
+                    end
                 end
             end
         end
@@ -6381,12 +6588,19 @@ function postLevelRequirements() --checks for category violations and requiremen
                 --going temple
                 if (state.world == 3 and state.level == 1 and state.theme_next ~= THEME.TEMPLE) then
                     violated = true
-                    log_print("shouldve gone temple violation")
+                    if not violationList.noTemple then
+                        violationList.noTemple = true
+                        log_print("shouldve gone temple violation")
+                    end
                 end
                 --going jungle
                 if ((state.world == 1 and state.level == 4) and state.theme_next ~= THEME.JUNGLE) then
                     violated = true
-                    log_print("shouldve gone jungle violation")
+                    if not violationList.noJungle then
+                        violationList.noJungle = true
+                        log_print("shouldve gone jungle violation")
+                    end
+                    
                 end
             end
         end
@@ -6403,7 +6617,10 @@ function postLevelRequirements() --checks for category violations and requiremen
                     end
                     if not child then
                         violated = true
-                        log_print("no child violation")
+                        if not violationList.noChild then
+                            violationList.noChild = true
+                            log_print("no child violation")
+                        end
                     end
                 end
                 if state.world == 7 and state.level == 2 then
@@ -6415,7 +6632,10 @@ function postLevelRequirements() --checks for category violations and requiremen
                     end
                     if not hasCrown then
                         violated = true
-                        log_print("no eggplant crown violation")
+                        if not violationList.noEggplant then
+                            violationList.noEggplant = true
+                            log_print("no eggplant crown violation")
+                        end
                     end
                 end
             end
@@ -6425,25 +6645,64 @@ function postLevelRequirements() --checks for category violations and requiremen
 end
 
 function doorManager()
-    --hundun wins block tiamat
-    if (categoryType == "Sunken City%" or categoryType == "No TP Sunken City%" or categoryType == "Abzu%" or categoryType == "No TP Abzu%" or categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "No TP Eggplant%" or categoryType == "Chain Low% Abzu" or categoryType == "Chain Low% Duat") then
-        if state.theme == THEME.TIAMAT then
-            local ents = get_entities_by_type(ENT_TYPE.FLOOR_DOOR_EXIT)
-            for i, ent in ipairs(ents) do
-                get_entity(ent):unlock(false)
+    if inPrivateRoom then
+        if privateRunCustom then
+            if privateFinish == 0 then
+                if state.theme == THEME.TIAMAT then
+                    local ents = get_entities_by_type(ENT_TYPE.FLOOR_DOOR_EXIT)
+                    for i, ent in ipairs(ents) do
+                        get_entity(ent):unlock(false)
+                    end
+                end
+            end
+            if privateModifiers.eggplant then
+                if state.world == 7 and state.level == 1 then
+                    local ents = get_entities_by_type(ENT_TYPE.FLOOR_DOOR_EXIT)
+                    for i, ent in ipairs(ents) do
+                        get_entity(ent):unlock(false)
+                    end
+                end
+            end
+        else
+            if (categoryType == "Sunken City%" or categoryType == "No TP Sunken City%" or categoryType == "Abzu%" or categoryType == "No TP Abzu%" or categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "No TP Eggplant%" or categoryType == "Chain Low% Abzu" or categoryType == "Chain Low% Duat") then
+                if state.theme == THEME.TIAMAT then
+                    local ents = get_entities_by_type(ENT_TYPE.FLOOR_DOOR_EXIT)
+                    for i, ent in ipairs(ents) do
+                        get_entity(ent):unlock(false)
+                    end
+                end
+            end
+            --eggplant blocks 7-1 main exit
+            if categoryType == "No TP Eggplant%" then
+                if state.world == 7 and state.level == 1 then
+                    local ents = get_entities_by_type(ENT_TYPE.FLOOR_DOOR_EXIT)
+                    for i, ent in ipairs(ents) do
+                        get_entity(ent):unlock(false)
+                    end
+                end
             end
         end
-    end
-    --eggplant blocks 7-1 main exit
-    if categoryType == "No TP Eggplant%" then
-        if state.world == 7 and state.level == 1 then
-            local ents = get_entities_by_type(ENT_TYPE.FLOOR_DOOR_EXIT)
-            for i, ent in ipairs(ents) do
-                get_entity(ent):unlock(false)
+    else
+        --hundun wins block tiamat
+        if (categoryType == "Sunken City%" or categoryType == "No TP Sunken City%" or categoryType == "Abzu%" or categoryType == "No TP Abzu%" or categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "No TP Eggplant%" or categoryType == "Chain Low% Abzu" or categoryType == "Chain Low% Duat") then
+            if state.theme == THEME.TIAMAT then
+                local ents = get_entities_by_type(ENT_TYPE.FLOOR_DOOR_EXIT)
+                for i, ent in ipairs(ents) do
+                    get_entity(ent):unlock(false)
+                end
             end
         end
+        --eggplant blocks 7-1 main exit
+        if categoryType == "No TP Eggplant%" then
+            if state.world == 7 and state.level == 1 then
+                local ents = get_entities_by_type(ENT_TYPE.FLOOR_DOOR_EXIT)
+                for i, ent in ipairs(ents) do
+                    get_entity(ent):unlock(false)
+                end
+            end
+        end
+        --no need for cog/abzu/duat because they are handled by theme requirements
     end
-    --no need for cog/abzu/duat because they are handled by theme requirements
 end
 
 function hardReset()
@@ -6482,12 +6741,15 @@ function testWin()
                         winConditionsMet = test_flag(flag,2) -- vegan
                     end
                     if privateModifiers.noPercent then
-                        if notprivateModifiers.chain then
+                        if not privateModifiers.chain then
                             winConditionsMet = not test_flag(flag,14) -- damageless
                         end
                     end
                     if privateModifiers.eggplant then
                         winConditionsMet = test_flag(flag, 10)
+                    end
+                    if privateFinish == 1 and state.screen == SCREEN.WIN then
+                        winConditionsMet = false
                     end
                     winConditionsMet = winConditionsMet and not violate
                     if winConditionsMet then 
@@ -7489,6 +7751,21 @@ function enterMessageWindow(render_ctx)
 end
 
 function closeConnection()
+    log_print("[Network] Closing connection to active processes.")
+    log_print("[Network] Game state:")
+    log_print("[Network] Screen: "..state.screen)
+    if matchStarted then
+        if inPrivateRoom then
+            log_print("[Network] Game: Private")
+        else
+            log_print("[Network] Game: Ranked")
+        end
+    elseif practiceStarted then
+        log_print("[Network] Game: Practice")
+    else
+        log_print("[Network] Game: N/A")
+    end
+    
     defaultValues()
     defaultPrivate()
     defaultMenu()
@@ -7500,6 +7777,26 @@ function closeConnection()
         inPrivateRoom = false
         udpSend("leave_room")
     end
+end
+
+function statusUpdate()
+    log_print("-----------STATUS REPORT-----------")
+    if matchStarted then
+        if inPrivateRoom then
+            log_print("Active Game: Private")
+        else
+            log_print("Active Game: Ranked")
+        end
+    elseif practiceStarted then
+        log_print("Active Game: Practice")
+    else
+        log_print("Active Game: N/A")
+    end
+    log_print("Current Screen: "..state.screen)
+    log_print("Variable dump:")
+    log_print("MMOpen: "..mainMenuOpen.."\tPROpen: "..privateRoomMenuOpen.."\tPOpen: "..pracSignOpen)
+    log_print("Queueing: "..inQueue.."\tQueue Time: "..queueTime.."\tBridge Connected: "..bridgeConnected)
+    log_print("-----------------------------------")
 end
 
 function incrementTimers()
@@ -8067,7 +8364,7 @@ end
 --tidepool path adjustment
 set_callback(function(ctx)
     if not (state.world == 4 and state.level == 3 and state.theme == THEME.TIDE_POOL) then return end
-    if categoryType ~= "Chain Low% Abzu" or not (inPrivateRoom and privateRunCustom and privateModifiers.chain) or not (pracCategory == "Chain Low% Abzu" and practiceStarted) then return end
+    if categoryType ~= "Chain Low% Abzu" and not (inPrivateRoom and privateRunCustom and privateModifiers.chain) and not (pracCategory == "Chain Low% Abzu" and practiceStarted) then return end
     local width, height = state.width, state.height
 
     local target_col, target_row = nil, nil
@@ -8089,7 +8386,7 @@ end, ON.POST_ROOM_GENERATION)
 --drill path adjustment
 set_callback(function(ctx)
     if not (state.world == 2 and state.theme == THEME.VOLCANA) then return end
-    if categoryType ~= "Chain Low% Abzu" or categoryType ~= "Chain Low% Duat" or not (inPrivateRoom and privateRunCustom and privateModifiers.chain) or not ((pracCategory == "Chain Low% Abzu" or pracCategory == "Chain Low% Duat") and practiceStarted) then return end
+    if categoryType ~= "Chain Low% Abzu" and categoryType ~= "Chain Low% Duat" and not (inPrivateRoom and privateRunCustom and privateModifiers.chain) and not ((pracCategory == "Chain Low% Abzu" or pracCategory == "Chain Low% Duat") and practiceStarted) then return end
     if not test_flag(state.presence_flags, 3) then return end
 
     -- find VLAD_DRILL on the top row
@@ -8158,7 +8455,7 @@ end, ON.POST_ROOM_GENERATION)
 set_callback(function(ctx)
     last_udjat_room = nil -- reset every run, so a non-matching level can't reuse stale data
     if not (state.world == 1 and test_flag(state.presence_flags, 1)) then return end
-    if categoryType ~= "Chain Low% Abzu" or categoryType ~= "Chain Low% Duat" or not (inPrivateRoom and privateRunCustom and privateModifiers.chain) or not ((pracCategory == "Chain Low% Abzu" or pracCategory == "Chain Low% Duat") and practiceStarted) then return end
+    if categoryType ~= "Chain Low% Abzu" and categoryType ~= "Chain Low% Duat" and not (inPrivateRoom and privateRunCustom and privateModifiers.chain) and not ((pracCategory == "Chain Low% Abzu" or pracCategory == "Chain Low% Duat") and practiceStarted) then return end
     local width, height = state.width, state.height
 
     local udjat_col, udjat_row = nil, nil
@@ -8185,7 +8482,7 @@ end, ON.POST_ROOM_GENERATION)
 --move keyif off path
 set_callback(function()
     if not last_udjat_room then return end
-    if categoryType ~= "Chain Low% Abzu" or categoryType ~= "Chain Low% Duat" or not (inPrivateRoom and privateRunCustom and privateModifiers.chain) or not ((pracCategory == "Chain Low% Abzu" or pracCategory == "Chain Low% Duat") and practiceStarted) then return end
+    if categoryType ~= "Chain Low% Abzu" and categoryType ~= "Chain Low% Duat" and not (inPrivateRoom and privateRunCustom and privateModifiers.chain) and not ((pracCategory == "Chain Low% Abzu" or pracCategory == "Chain Low% Duat") and practiceStarted) then return end
     local width, height = state.width, state.height
 
     local uids = get_entities_by_type(ENT_TYPE.ITEM_LOCKEDCHEST_KEY)
@@ -8233,6 +8530,7 @@ set_pre_entity_spawn(loadCategoryItems, SPAWN_TYPE.LEVEL_GEN_TILE_CODE, MASK.ITE
 set_global_interval(expireChats,1)
 set_global_interval(adjustFade,1)
 set_global_interval(incrementTimers,60)
+set_global_interval(statusUpdate,18000)
 
 --server callbacks
 set_callback(timedOps, ON.GUIFRAME)
@@ -8245,6 +8543,5 @@ set_callback(stopServer, ON.SCRIPT_DISABLE)
 
 set_callback(closeConnection, ON.MENU)
 set_callback(unlockStuff, ON.MENU)
-set_callback(closeConnection, ON.OPTIONS)
 set_callback(closeConnection, ON.TITLE)
 set_callback(closeConnection, ON.CHARACTER_SELECT)
