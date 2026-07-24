@@ -1,7 +1,7 @@
 meta = {
     name = 'S2 Ranked',
     version = '1.21',
-    component_version = '1.21.0',
+    component_version = '1.21.1',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -7794,8 +7794,15 @@ function statusUpdate()
     end
     log_print("Current Screen: "..state.screen)
     log_print("Variable dump:")
-    log_print("MMOpen: "..mainMenuOpen.."\tPROpen: "..privateRoomMenuOpen.."\tPOpen: "..pracSignOpen)
-    log_print("Queueing: "..inQueue.."\tQueue Time: "..queueTime.."\tBridge Connected: "..bridgeConnected)
+    local function yn(bool)
+        if bool then
+            return "Yes"
+        else
+            return "No"
+        end
+    end
+    log_print("MMOpen: "..yn(mainMenuOpen).."\tPROpen: "..yn(privateRoomMenuOpen).."\tPOpen: "..yn(pracSignOpen))
+    log_print("Queueing: "..yn(inQueue).."\tQueue Time: "..queueTime.."\tBridge Connected: "..yn(bridgeConnected))
     log_print("-----------------------------------")
 end
 
