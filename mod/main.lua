@@ -1047,7 +1047,7 @@ end
 
 --camp functions
 function spawnSign()
-    if not inPrivateRoom and not pracSignOpen then
+    if not inPrivateRoom and not pracSignOpen and not banPhase then
         mainMenuOpen = false
     end
     local signUID = spawn_entity(ENT_TYPE.ITEM_SPEEDRUN_SIGN, 46, 84, LAYER.FRONT, 0, 0)
