@@ -1,7 +1,7 @@
 meta = {
     name = 'S2 Ranked',
     version = '1.21',
-    component_version = '1.21.1',
+    component_version = '1.21.2',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -7828,6 +7828,7 @@ function killStupidAnnoyingCritters()
     if practiceStarted then 
         practiceStarted = false
         processChat("Practice session ended.", "Info")
+        defaultMatchValues()
     end
 end
 
