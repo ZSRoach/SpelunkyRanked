@@ -4,10 +4,10 @@ import os
 import sys
 
 # Bridge version — must match server VERSION (float)
-BRIDGE_VERSION = 1.21
+BRIDGE_VERSION = 1.22
 
-BRIDGE_COMPONENT_VERSION = "1.21.0"
-GAME_COMPONENT_VERSION = "1.21.0" #fallback, mostly ignored
+BRIDGE_COMPONENT_VERSION = "1.22.0"
+GAME_COMPONENT_VERSION = "1.22.0" #fallback, mostly ignored
 GITHUB_OWNER = "ZSRoach"
 GITHUB_REPO = "SpelunkyRanked"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"

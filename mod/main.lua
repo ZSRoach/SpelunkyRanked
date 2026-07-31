@@ -1,7 +1,7 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.21',
-    component_version = '1.21.3',
+    version = '1.22',
+    component_version = '1.22.0',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -579,6 +579,7 @@ tidepool = true
 
 
 -- camp variables
+bufferPause = false
 signDelay = false
 inQueue = false
 banButtonIndex = 0
@@ -1173,9 +1174,14 @@ end
 
 --handles all inputs for main menu
 function menuInputHandle()
+    if bufferPause then
+        game_manager.pause_ui.visibility = 0
+        bufferPause = false
+    end
+    if game_manager.pause_ui.visibility ~= 0 then return end
     if chatting or buttonCooldown then return end
     local input = get_io()
-    -- input.wantkeyboard = true
+    input.wantkeyboard = true
     local back = keyTranslation(state.player_inputs.player_slot_1.input_mapping_keyboard.bomb)
     local confirm = keyTranslation(state.player_inputs.player_slot_1.input_mapping_keyboard.jump)
     local up = keyTranslation(state.player_inputs.player_slot_1.input_mapping_keyboard.up)
@@ -1235,22 +1241,22 @@ function menuInputHandle()
         elseif pracSignPage == 1 then
             if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) then
                 if pracPage1Column ~= 2 then
-                    pracPage1Row = (pracPage1Row - 1)%7
+                    pracPage1Row = (pracPage1Row - 1)%8
                 end
             end
             if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) then
                 if pracPage1Column ~= 2 then
-                    pracPage1Row = (pracPage1Row + 1)%7
+                    pracPage1Row = (pracPage1Row + 1)%8
                 end
             end
             if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or inputs.key_press(inputs.KEYBOARD.W) or input.keypressed(up) then
                 if pracPage1Column ~= 2 then
-                    pracPage1Row = (pracPage1Row - 1)%7
+                    pracPage1Row = (pracPage1Row - 1)%8
                 end
             end
             if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or inputs.key_press(inputs.KEYBOARD.S) or input.keypressed(down) then
                 if pracPage1Column ~= 2 then
-                    pracPage1Row = (pracPage1Row + 1)%7
+                    pracPage1Row = (pracPage1Row + 1)%8
                 end
             end
             if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or inputs.key_press(inputs.KEYBOARD.A) or input.keypressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
@@ -2031,7 +2037,7 @@ function menuInputHandle()
                         elseif privatePageColumn == 1 then
                             privateMinuteLimit = (privateMinuteLimit+1)%60
                         elseif privatePageColumn == 2 then
-                            privateWinners = 1+(privateWinners)%7
+                            privateWinners = 1+(privateWinners)%8
                         elseif privatePageColumn == 4 then
                             privateCheckpointDistance = (privateCheckpointDistance+1)%10
                         end
@@ -2041,7 +2047,7 @@ function menuInputHandle()
                         elseif privatePageColumn == 1 then
                             privateMinuteLimit = (privateMinuteLimit-1)%60
                         elseif privatePageColumn == 2 then
-                            privateWinners = 1+(privateWinners-2)%7
+                            privateWinners = 1+(privateWinners-2)%8
                         elseif privatePageColumn == 4 then
                             privateCheckpointDistance = (privateCheckpointDistance-1)%10
                         end
@@ -2092,6 +2098,9 @@ function menuInputHandle()
                 signDelay = false
             end, 10)
         end
+    end
+    if input.keypressed(27) then --force close pause menu
+        bufferPause = true
     end
 end
 
@@ -2175,11 +2184,17 @@ function renderQueueMenu(render_ctx)
 end
 --renders all private room pages
 function renderPrivateRoomMenu(render_ctx)
+    local function isBehind(a, b)
+        if a.area ~= b.area then
+            return a.area < b.area
+        end
+        return a.level < b.level
+    end
     local function sortByArea(list)
         for i = 2, #list do
             local key = list[i]
             local j = i - 1
-            while j >= 1 and list[j].area < key.area do
+            while j >= 1 and isBehind(list[j], key) do
                 list[j+1] = list[j]
                 j = j - 1
             end
@@ -2866,14 +2881,21 @@ function renderPrivateRoomMenu(render_ctx)
                 if p.forfeited then
                     renderText(render_ctx,"FORFEIT @ ("..p.area.."-"..p.level..") - "..p.player_name,0,(top-i*(gap))*ratio,size, red)
                 elseif p.finishTime then
-                    local hrs = math.floor(p.finishTime // 3600)
-                    local minutes = math.floor((p.finishTime % 3600)/60)
+                    local hrs = math.floor(p.finishTime / 3600)
+                    local minutes = math.floor((p.finishTime % 3600) / 60)
                     local seconds = p.finishTime % 60
+
+                    local sec_str = string.format("%.2f", seconds)
+                    if seconds < 10 then
+                        sec_str = "0" .. sec_str
+                    end
+
                     local time
                     if hrs == 0 then
-                        time = minutes..":"..seconds
+                        time = minutes .. ":" .. sec_str
                     else
-                        time = hrs..":"..minutes..":"..seconds
+                        local min_str = (minutes < 10) and ("0" .. minutes) or tostring(minutes)
+                        time = hrs .. ":" .. min_str .. ":" .. sec_str
                     end
                     renderText(render_ctx,time.." - "..p.player_name,0,ratio*(top-i*(gap)),size, green)
                 else
@@ -4639,15 +4661,15 @@ function determineTheme(world, level)
             return THEME.OLMEC
         elseif world == 4 then
             if tidepool then
-                if level == 4 and (categoryType == "Abzu%" or categoryType == "No TP Abzu%" or categoryType == "Chain Low% Abzu") then
+                if level == 4 and (pracCategory == "Abzu%" or pracCategory == "No TP Abzu%" or pracCategory == "Chain Low% Abzu") then
                     return THEME.ABZU
                 else
                     return THEME.TIDE_POOL
                 end
             else
-                if level == 4 and (categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "Chain Low% Duat") then
+                if level == 4 and (pracCategory == "Duat%" or pracCategory == "No TP Duat%" or pracCategory == "Chain Low% Duat") then
                     return THEME.DUAT
-                elseif level == 3 and (categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "Chain Low% Duat") then
+                elseif level == 3 and (pracCategory == "Duat%" or pracCategory == "No TP Duat%" or pracCategory == "Chain Low% Duat") then
                     return THEME.CITY_OF_GOLD
                 else
                     return THEME.TEMPLE
@@ -4666,6 +4688,8 @@ function determineTheme(world, level)
                 return THEME.HUNDUN
             elseif level > 4 then
                 return THEME.COSMIC_OCEAN
+            elseif level == 2 and pracCategory == "No TP Eggplant%" then
+                return THEME.EGGPLANT_WORLD
             else
                 return THEME.SUNKEN_CITY
             end
@@ -5074,7 +5098,7 @@ function warpToCheckpoint()
         elseif inPrivateRoom and not privateRunCustom and categoryType == "Cosmic Ocean%" and warpTo[2] > 5 then 
             loadProg = true
         elseif practiceStarted then
-            if pracCategory ~= "Cosmic Ocean%" then
+            if (pracCategory ~= "Cosmic Ocean%" and pracCatMode) or pracCheckpoints then
                 loadProg = true
             end
         elseif categoryType ~= "Cosmic Ocean%" then
@@ -5127,14 +5151,20 @@ end
 
 function pracWorldTranslate(world)
     local w = pracWorld
-    if world == 3 then
+    if world == 2 then
         w = 2
+        jungle = true
+    elseif world == 3 then
+        w = 2
+        jungle = false
     elseif world == 4 then
         w = 3
     elseif world == 5 then
         w = 4
+        tidepool = true
     elseif world == 6 then
         w = 4
+        tidepool = false
     elseif world == 7 then
         w = 5
     elseif world == 8 then
@@ -5267,7 +5297,7 @@ function saveProgress()
         elseif categoryType == "Duat%" or categoryType == "No TP Duat%" or categoryType == "Chain Low% Duat" then
             tidepool = false
         elseif saveInfo.world == 4 then
-            if state.theme == THEME.TIDE_POOL then
+            if state.theme == THEME.TIDE_POOL or state.theme == THEME.ABZU then
                 tidepool = true
             else 
                 tidepool = false
@@ -5278,6 +5308,7 @@ end
 
 function loadProgress()
     if spawnCoItems > 0 then 
+        print ("spawn co items > 0")
         loadProg = false
         return
     end
@@ -5399,7 +5430,10 @@ function loadPracEnts()
     local player = players[1]
     local powerups = pracPassives
 
-    pick_up(player.uid, spawn(pracPack, 0, 0, LAYER.PLAYER, 0, 0))
+    if pracPack then
+        pick_up(player.uid, spawn(pracPack, 0, 0, LAYER.PLAYER, 0, 0))
+    end
+
     --powerups
     for i, powerup in ipairs(powerups) do
         if powerup ~= 0 then
@@ -5509,7 +5543,6 @@ function loadEntities()
         get_entity(mount):apply_metadata(inventory.mountData)
         carry(mount,player.uid)
     end
-    
 end
 
 function newFurthest()
@@ -5681,10 +5714,10 @@ function preGenHandle()
     if practiceStarted then
         if pracCatMode then
             if pracCategory == "Cosmic Ocean%" then
+                loadInventory()
                 if pracCheckpoints then
                     saveProgress()
                 end
-                loadInventory()
             elseif pracCheckpoints then
                 loadInventory()
                 saveProgress()
@@ -5766,9 +5799,11 @@ function levelHandle()
                 setCache()
             end
         else
-            furthestLevel = {pracWorldTranslate(pracWorld),pracLevel}
-            doWarp()
-            practiceReset = false
+            if practiceReset then
+                furthestLevel = {pracWorldTranslate(pracWorld),pracLevel}
+                doWarp()
+                practiceReset = false
+            end
             if state.level == pracLevel and state.world == pracWorldTranslate(pracWorld) then
                 loadPracEnts()
             end
@@ -6831,9 +6866,11 @@ function testWin()
     if practiceStarted then
         if state.screen == SCREEN.WIN or state.screen == SCREEN.CONSTELLATION then
             prepPracticeMenu()
+            furthestLevel = {1,1}
         end
         if pracCategory == "Cosmic Ocean%" and ((state.screen == SCREEN.TRANSITION and state.level >= 20) or (state.screen == SCREEN.LEVEL and state.level >= 21)) and pracCatMode then
             prepPracticeMenu()
+            furthestLevel = {1,1}
         end
     end
 end
