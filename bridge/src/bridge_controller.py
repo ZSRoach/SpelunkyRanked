@@ -59,6 +59,7 @@ class BridgeController(QObject):
 
     # ---- Private room lifecycle signals (forwarded from WS/REST, also relayed to UDP) ----
     room_joined = Signal(dict)          # full room snapshot {room_code, host_id, players, config, phase}
+                                         # (UDP payload also carries your_steam_id so the game can identify its own roster row)
     room_create_failed = Signal(str)    # error code, e.g. "at_capacity"
     room_players_updated = Signal(dict)   # {players, host_id}
     room_config_updated = Signal(dict)
@@ -70,7 +71,7 @@ class BridgeController(QObject):
     room_player_forfeited = Signal(dict)# {steam_id, player_name}
     room_result = Signal(dict)          # {participants, finalize_reason}
     room_time_remaining = Signal(int)   # seconds
-    room_lobby_reset = Signal(dict)     # same shape as room_joined
+    room_lobby_reset = Signal(dict)     # same shape as room_joined (UDP payload also carries your_steam_id)
     room_closed = Signal(dict)          # {reason}
     room_left = Signal()                # this player's own leave was confirmed
     room_inactivity_warning = Signal()
@@ -795,7 +796,7 @@ class BridgeController(QObject):
         self.in_room_race = False
         self.room_code = room.get("room_code", "")
         log.info("Entered private room %s", self.room_code)
-        self.udp.send_to_game({"event": "room_joined", **room})
+        self.udp.send_to_game({"event": "room_joined", **room, "your_steam_id": self.steam_id})
         self.room_joined.emit(room)
 
     def _on_game_create_room(self) -> None:
@@ -1014,7 +1015,7 @@ class BridgeController(QObject):
 
     def _on_ws_room_lobby_reset(self, room: dict) -> None:
         self.room_code = room.get("room_code", self.room_code)
-        self.udp.send_to_game({"event": "room_lobby_reset", **room})
+        self.udp.send_to_game({"event": "room_lobby_reset", **room, "your_steam_id": self.steam_id})
         self.room_lobby_reset.emit(room)
 
     def _on_ws_room_closed(self, data: dict) -> None:
