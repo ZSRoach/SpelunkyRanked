@@ -1,3 +1,55 @@
+-- BEGIN Tetris controls
+local function create_tetris_controls()
+    local controls = {}
+    local previous, current = {}, {}
+    local actions = {left='left', right='right', down='down', rotate='attack', confirm='jump', back='bomb'}
+
+    local function held(buttons, code, size)
+        if buttons == nil or type(code) ~= 'number' or code < 0 or code >= size then return false end
+        local button = buttons[code]
+        return button ~= nil and button.down == true
+    end
+
+    function controls.poll(seed)
+        local raw = get_raw_input()
+        local props = game_manager and game_manager.game_props
+        local slot = state and state.player_inputs and state.player_inputs.player_slot_1
+        local index = props and props.input_index and props.input_index[1]
+        local controller = raw and type(index) == 'number' and index >= 4 and index < 12 and raw.controller[index] or nil
+        local km = slot and slot.input_mapping_keyboard
+        local cm = slot and slot.input_mapping_controller
+        local focused = props ~= nil and props.game_has_focus ~= false
+        local next_state = {}
+        -- These mappings already index the game's complete raw input tables.
+        -- Do not translate through RAW_KEY/KEY or infer a physical key name.
+        for action, binding in pairs(actions) do
+            next_state[action] = focused and (
+                held(raw and raw.keyboard, km and km[binding], 112) or
+                held(controller and controller.buttons, cm and cm[binding], 16)) or false
+        end
+        -- Escape is always a dedicated, non-rebindable key, so it can never collide with a
+        -- gameplay action -- no suppression needed.
+        next_state.escape = focused and held(raw and raw.keyboard, RAW_KEY.ESCAPE, 112)
+        -- Back (bomb) IS rebindable, so only suppress it when the player's own back key is the
+        -- exact same physical key as one of their gameplay actions -- e.g. if bomb and rotate
+        -- happen to share a binding, gameplay wins so every rotate doesn't also try to quit.
+        -- Holding an unrelated gameplay key at the same time must NOT block a real back press.
+        local back_shares_gameplay_key = (km and km.bomb ~= nil and (km.bomb == km.attack or km.bomb == km.left or km.bomb == km.right or km.bomb == km.down))
+            or (cm and cm.bomb ~= nil and (cm.bomb == cm.attack or cm.bomb == cm.left or cm.bomb == cm.right or cm.bomb == cm.down))
+        if back_shares_gameplay_key then
+            local gameplay_held = next_state.rotate or next_state.left or next_state.right or next_state.down
+            next_state.back = next_state.back and not gameplay_held
+        end
+        previous = seed and next_state or current
+        current = next_state
+    end
+
+    function controls.down(action) return current[action] == true end
+    function controls.pressed(action) return current[action] == true and previous[action] ~= true end
+    return controls
+end
+-- END Tetris controls
+
 local tetris_sign = {}
 
 --[[
@@ -21,91 +73,7 @@ local config = {
 }
 
 local callbacks_registered = false
-local sync_fallback_inputs = nil
-
-
--- This demo is intentionally self-contained. The original ranked mod had helper modules
--- for button prompts and input polling, but the sign demo should not crash if a dev only
--- drops this module into a clean test pack.
-local ok_inputs, inputs = pcall(require, 'Inputs.inputs')
-if not ok_inputs or inputs == nil then
-    inputs = {
-        KEYBOARD = {
-            RETURN = 13, SPACE = 32, ESC = 27,
-            LEFT_ARROW = 37, RIGHT_ARROW = 39, UP_ARROW = 38, DOWN_ARROW = 40,
-            A = 65, D = 68, S = 83, W = 87,
-        },
-        GAMEPAD = {
-            DPAD_UP = 1, DPAD_DOWN = 2, DPAD_LEFT = 3, DPAD_RIGHT = 4,
-            A = 13, B = 14,
-            UP = 1000, DOWN = 1001, LEFT = 1002, RIGHT = 1003,
-        },
-    }
-
-    local previous_gamepad = nil
-    local current_gamepad = nil
-
-    local function gamepad_down_from_snapshot(button, gamepad)
-        if gamepad == nil then return false end
-        if button == inputs.GAMEPAD.UP then
-            return (gamepad.ly or 0) > 0.5 or test_flag(gamepad.buttons or 0, inputs.GAMEPAD.DPAD_UP)
-        elseif button == inputs.GAMEPAD.DOWN then
-            return (gamepad.ly or 0) < -0.5 or test_flag(gamepad.buttons or 0, inputs.GAMEPAD.DPAD_DOWN)
-        elseif button == inputs.GAMEPAD.LEFT then
-            return (gamepad.lx or 0) < -0.5 or test_flag(gamepad.buttons or 0, inputs.GAMEPAD.DPAD_LEFT)
-        elseif button == inputs.GAMEPAD.RIGHT then
-            return (gamepad.lx or 0) > 0.5 or test_flag(gamepad.buttons or 0, inputs.GAMEPAD.DPAD_RIGHT)
-        end
-        return test_flag(gamepad.buttons or 0, button)
-    end
-
-    function inputs.key_down(key)
-        return get_io().keydown(key)
-    end
-
-    function inputs.key_press(key)
-        return get_io().keypressed(key)
-    end
-
-    function inputs.gamepad_button_down(button)
-        return gamepad_down_from_snapshot(button, current_gamepad)
-    end
-
-    function inputs.gamepad_button_press(button)
-        return gamepad_down_from_snapshot(button, current_gamepad) and not gamepad_down_from_snapshot(button, previous_gamepad)
-    end
-
-    sync_fallback_inputs = function()
-        previous_gamepad = current_gamepad
-        current_gamepad = get_io().gamepad
-    end
-end
-
-
-local SPELUNKY_INPUT_FLAG = {
-    WHIP = 2,
-    LEFT = 9,
-    RIGHT = 10,
-    DOWN = 12,
-}
-
-local previous_spelunky_buttons = 0
-local current_spelunky_buttons = 0
-
-local function get_spelunky_buttons()
-    if state and state.player_inputs and state.player_inputs.player_slot_1 then
-        return state.player_inputs.player_slot_1.buttons_gameplay or state.player_inputs.player_slot_1.buttons or 0
-    end
-    return 0
-end
-
-local function spelunky_button_down(button)
-    return current_spelunky_buttons ~= nil and test_flag(current_spelunky_buttons, button)
-end
-
-local function spelunky_button_press(button)
-    return spelunky_button_down(button) and not test_flag(previous_spelunky_buttons or 0, button)
-end
+local controls = create_tetris_controls()
 
 local ratio = 16 / 9
 local white = Color:white()
@@ -322,11 +290,13 @@ local function render_panel(ctx, top, left, rows, cols, size)
 end
 
 local function block_inputs()
+    if config.manage_inputs == false then return end
     blocking_inputs = true
     returning_inputs = false
 end
 
 local function return_inputs()
+    if config.manage_inputs == false then return end
     returning_inputs = true
     blocking_inputs = false
 end
@@ -593,8 +563,8 @@ local function move_piece(dx, dy)
 end
 
 local function horizontal_input_tick()
-    local left_held = spelunky_button_down(SPELUNKY_INPUT_FLAG.LEFT)
-    local right_held = spelunky_button_down(SPELUNKY_INPUT_FLAG.RIGHT)
+    local left_held = controls.down('left')
+    local right_held = controls.down('right')
     local dir = 0
 
     if left_held and not right_held then
@@ -679,9 +649,8 @@ end
 local function close_tetris()
     tetris_open = false
     sign_open = false
-    previous_spelunky_buttons = 0
-    current_spelunky_buttons = 0
     return_inputs()
+    if config.on_close then config.on_close() end
     sign_delay = true
     set_global_timeout(function()
         sign_delay = false
@@ -693,43 +662,39 @@ local function open_tetris()
     tetris_open = true
     sign_delay = false
     clear_sign_entities()
-    previous_spelunky_buttons = get_spelunky_buttons()
-    current_spelunky_buttons = previous_spelunky_buttons
+    controls.poll(true)
     reset_tetris()
     block_inputs()
 end
 
 local function tetris_input_tick()
-    current_spelunky_buttons = get_spelunky_buttons()
     if tetris.game_over then
         -- Dev/test handling after game over. Gameplay itself is still only left, right, rotate.
-        if spelunky_button_press(SPELUNKY_INPUT_FLAG.WHIP) then
+        if controls.pressed('rotate') then
             reset_tetris()
-        elseif inputs.key_press(inputs.KEYBOARD.ESC) or inputs.gamepad_button_press(inputs.GAMEPAD.B) then
+        elseif controls.pressed('escape') or controls.pressed('back') then
             close_tetris()
         end
-        previous_spelunky_buttons = current_spelunky_buttons
         return
     end
 
     horizontal_input_tick()
 
-    if spelunky_button_press(SPELUNKY_INPUT_FLAG.WHIP) then
+    if controls.pressed('rotate') then
         rotate_piece()
     end
 
-    if spelunky_button_down(SPELUNKY_INPUT_FLAG.DOWN) then
+    if controls.down('down') then
         tetris.fall_frames = FALL_FRAMES_FAST
     else
         tetris.fall_frames = tetris.base_fall_frames or FALL_FRAMES_START
     end
 
     -- Dev/test escape only. Not part of gameplay buttons.
-    if inputs.key_press(inputs.KEYBOARD.ESC) or inputs.gamepad_button_press(inputs.GAMEPAD.B) then
+    if controls.pressed('escape') or controls.pressed('back') then
         close_tetris()
     end
 
-    previous_spelunky_buttons = current_spelunky_buttons
 end
 
 local function tetris_game_tick()
@@ -753,16 +718,17 @@ local function draw_board(ctx)
 
     ctx:draw_screen_rect_filled(bg, board_fill_color)
 
-    local line = 0.00045
+    local horizontal_line = 0.00045
+    local vertical_line = 0.0012
     for x = 0, BOARD_W do
         local gx = BOARD_LEFT + x * CELL
-        local rect = AABB:new(gx - line, top * ratio, gx + line, bottom * ratio)
+        local rect = AABB:new(gx - vertical_line, top * ratio, gx + vertical_line, bottom * ratio)
         ctx:draw_screen_rect_filled(rect, board_grid_color)
     end
 
     for y = 0, BOARD_H do
         local gy = BOARD_TOP - y * CELL
-        local rect = AABB:new(left, (gy + line) * ratio, right, (gy - line) * ratio)
+        local rect = AABB:new(left, (gy + horizontal_line) * ratio, right, (gy - horizontal_line) * ratio)
         ctx:draw_screen_rect_filled(rect, board_grid_color)
     end
 end
@@ -911,7 +877,7 @@ local function draw_tetris(ctx)
     if tetris.game_over then
         render_text(ctx, 'GAME OVER', 0, 0.05 * ratio, 0.0015, white)
         render_text(ctx, 'Whip to restart', 0, -0.02 * ratio, 0.00075, white)
-        render_text(ctx, 'Back to quit', 0, -.08 * ratio, 0.00075, white)
+        render_text(ctx, 'Bomb / Esc to quit', 0, -.08 * ratio, 0.00075, white)
     end
 end
 
@@ -945,7 +911,7 @@ end
 local function draw_world_prompt(ctx)
     if sign == nil or sign_open or tetris_open or not player_near_sign() then return end
     local sx, sy = screen_position(sign.x, sign.y + 1.15)
-    render_text(ctx, 'Press Enter / A to open', sx, sy, 0.00055, white)
+    render_text(ctx, 'Press Enter / Jump to open', sx, sy, 0.00055, white)
 end
 
 local function draw_sign_menu(ctx)
@@ -961,11 +927,14 @@ local function draw_sign_menu(ctx)
     ctx:draw_screen_rect(button_box, 1.2, black)
     render_text(ctx, 'Open Tetris', 0, 0.025 * ratio, 0.00078, black)
 
-    render_text(ctx, 'Enter: select     Esc: close', 0, -0.17 * ratio, 0.00052, gray)
+    render_text(ctx, 'Jump / Enter: select     Bomb / Esc: close', 0, -0.17 * ratio, 0.00052, gray)
 
-    if inputs.key_press(inputs.KEYBOARD.RETURN) or inputs.key_press(inputs.KEYBOARD.SPACE) or inputs.gamepad_button_press(inputs.GAMEPAD.A) then
+end
+
+local function sign_input_tick()
+    if controls.pressed('confirm') then
         open_tetris()
-    elseif inputs.key_press(inputs.KEYBOARD.ESC) or inputs.gamepad_button_press(inputs.GAMEPAD.B) then
+    elseif controls.pressed('escape') or controls.pressed('back') then
         sign_open = false
         return_inputs()
         sign_delay = true
@@ -1005,7 +974,6 @@ local function render_handle(ctx)
         draw_sign_menu(ctx)
     elseif tetris_open then
         draw_tetris(ctx)
-        tetris_input_tick()
     end
 end
 
@@ -1013,12 +981,18 @@ local function gameframe_handle()
     input_blocker_tick()
     tetris_game_tick()
 
-    -- Fallback interaction path: useful in clean test packs or if the vanilla sign
-    -- toast changes. This keeps the demo easy to test.
-    if not sign_open and not tetris_open and player_near_sign() then
-        if inputs.key_press(inputs.KEYBOARD.RETURN) or inputs.key_press(inputs.KEYBOARD.SPACE) or inputs.gamepad_button_press(inputs.GAMEPAD.A) then
-            open_sign_menu()
-        end
+end
+
+local function gui_input_handle()
+    local enabled = config.input_enabled == nil or config.input_enabled()
+    controls.poll(not enabled)
+    if not enabled then return end
+    if tetris_open then
+        tetris_input_tick()
+    elseif sign_open then
+        sign_input_tick()
+    elseif player_near_sign() and controls.pressed('confirm') then
+        open_sign_menu()
     end
 end
 
@@ -1076,9 +1050,7 @@ function tetris_sign.init(options)
         return tetris_sign
     end
 
-    if sync_fallback_inputs ~= nil then
-        set_callback(sync_fallback_inputs, ON.GUIFRAME)
-    end
+    set_callback(gui_input_handle, ON.GUIFRAME)
 
     set_callback(function(text)
         -- Vanilla sign interaction path. When the sign is actually triggered by the

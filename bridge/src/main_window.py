@@ -194,7 +194,7 @@ class MainWindow(QMainWindow):
         self._controller.ws_disconnected.connect(self._on_ws_disconnected)
         self._settings_page.logout_requested.connect(self._on_logout)
         self._settings_page.overlay_always_on_top_changed.connect(self._overlay.set_always_on_top)
-        self._settings_page.restart_requested.connect(QApplication.quit)
+        self._settings_page.restart_requested.connect(self._quit_for_restart)
 
         self._update_panel.update_completed.connect(self._on_update_completed)
         self._mismatch_update_panel.update_completed.connect(self._on_update_completed)
@@ -259,7 +259,7 @@ class MainWindow(QMainWindow):
             title="",
             show_version_info=False,
         )
-        self._update_panel.restart_requested.connect(QApplication.quit)
+        self._update_panel.restart_requested.connect(self._quit_for_restart)
         layout.addWidget(self._update_panel)
         layout.addStretch()
         scroll.setWidget(content)
@@ -313,7 +313,7 @@ class MainWindow(QMainWindow):
             title="Version Repair",
             subtitle="The server reported a bridge/game mismatch. Update only the stale component and keep the standard version naming unchanged.",
         )
-        self._mismatch_update_panel.restart_requested.connect(QApplication.quit)
+        self._mismatch_update_panel.restart_requested.connect(self._quit_for_restart)
         layout.addWidget(self._mismatch_update_panel)
         layout.addStretch()
         scroll.setWidget(content)
@@ -452,6 +452,14 @@ class MainWindow(QMainWindow):
             self._set_update_indicator(show)
         except Exception:
             pass
+
+    def _quit_for_restart(self):
+        """Used by every restart_requested path (settings restart, update installed, version
+        mismatch update) instead of wiring straight to QApplication.quit — that call alone
+        skips closeEvent, so the WS/UDP connections would otherwise die by abrupt process exit
+        rather than a clean disconnect, right before the app relaunches itself."""
+        self._controller.stop_networking()
+        QApplication.quit()
 
     def closeEvent(self, event):
         self._controller.stop_networking()

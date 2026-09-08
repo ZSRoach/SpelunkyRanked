@@ -100,11 +100,13 @@ local inputs = {
 inputs.KEYBOARD = KEYBOARD
 inputs.GAMEPAD = GAMEPAD
 inputs.MODE = MODE
--- local get_io() = get_io()
-local previous_frame_gamepad = nil
-local current_frame_gamepad = nil
+-- Controller snapshots must be copied because engine-owned objects can mutate in place.
+local current_frame_gamepad = {buttons=0, lx=0, ly=0, rx=0, ry=0}
+local previous_frame_gamepad = current_frame_gamepad
 local previous_frame_mouse = nil
 local current_frame_mouse = nil
+local pending_gamepad_presses = {}
+local pending_gamepad_releases = {}
 
 function inputs.key_down(key)
     return get_io().keydown(key)
@@ -136,47 +138,87 @@ end
 
 function inputs.gamepad_button_down(button, gamepad)
     gamepad = gamepad or current_frame_gamepad
-    local buttons = gamepad.buttons
+    if gamepad == nil then return false end
+    local buttons = gamepad.buttons or 0
     if button == GAMEPAD.UP then
-        if gamepad.ly > .5 then
-            return true
-        end
+        if (gamepad.ly or 0) > .5 then return true end
         button = GAMEPAD.DPAD_UP
     elseif button == GAMEPAD.DOWN then
-        if gamepad.ly < -.5 then
-            return true
-        end
+        if (gamepad.ly or 0) < -.5 then return true end
         button = GAMEPAD.DPAD_DOWN
     elseif button == GAMEPAD.LEFT then
-        if gamepad.lx < -.5 then
-            return true
-        end
+        if (gamepad.lx or 0) < -.5 then return true end
         button = GAMEPAD.DPAD_LEFT
     elseif button == GAMEPAD.RIGHT then
-        if gamepad.lx > .5 then
-            return true
-        end
+        if (gamepad.lx or 0) > .5 then return true end
         button = GAMEPAD.DPAD_RIGHT
     end
     return test_flag(buttons, button)
 end
 
+local function clear_direction_aliases(pending, button)
+    if button == GAMEPAD.UP or button == GAMEPAD.DPAD_UP then pending[GAMEPAD.UP], pending[GAMEPAD.DPAD_UP] = false, false end
+    if button == GAMEPAD.DOWN or button == GAMEPAD.DPAD_DOWN then pending[GAMEPAD.DOWN], pending[GAMEPAD.DPAD_DOWN] = false, false end
+    if button == GAMEPAD.LEFT or button == GAMEPAD.DPAD_LEFT then pending[GAMEPAD.LEFT], pending[GAMEPAD.DPAD_LEFT] = false, false end
+    if button == GAMEPAD.RIGHT or button == GAMEPAD.DPAD_RIGHT then pending[GAMEPAD.RIGHT], pending[GAMEPAD.DPAD_RIGHT] = false, false end
+end
+
 function inputs.gamepad_button_press(button)
-    return inputs.gamepad_button_down(button, current_frame_gamepad) and not inputs.gamepad_button_down(button, previous_frame_gamepad)
+    if pending_gamepad_presses[button] then
+        pending_gamepad_presses[button] = false
+        clear_direction_aliases(pending_gamepad_presses, button)
+        return true
+    end
+    return false
 end
 
 function inputs.gamepad_button_release(button)
-    return inputs.gamepad_button_down(button, previous_frame_gamepad) and not inputs.gamepad_button_down(button, current_frame_gamepad)
+    if pending_gamepad_releases[button] then
+        pending_gamepad_releases[button] = false
+        clear_direction_aliases(pending_gamepad_releases, button)
+        return true
+    end
+    return false
 end
 
 function inputs.gamepad_left_stick(gamepad)
     gamepad = gamepad or current_frame_gamepad
-    return gamepad.lx, gamepad.ly
+    if gamepad == nil then return 0, 0 end
+    return gamepad.lx or 0, gamepad.ly or 0
 end
 
 function inputs.gamepad_right_stick(gamepad)
     gamepad = gamepad or current_frame_gamepad
-    return gamepad.rx, gamepad.ry
+    if gamepad == nil then return 0, 0 end
+    return gamepad.rx or 0, gamepad.ry or 0
+end
+
+local function assigned_gamepad()
+    local io = get_io()
+    local props = game_manager and game_manager.game_props
+    local index = props and props.input_index and props.input_index[1]
+    if index and index >= 8 and index < 12 and get_raw_input then
+        local raw = get_raw_input()
+        local controller = raw and raw.controller[index]
+        local snapshot = {buttons=0, lx=0, ly=0, rx=0, ry=0}
+        if controller then
+            local mapping = {[0]=1, [1]=2, [2]=3, [3]=4, [4]=13, [5]=14,
+                [6]=15, [7]=16, [8]=9, [9]=10, [12]=7, [13]=8, [14]=6, [15]=5}
+            for raw_button, flag in pairs(mapping) do
+                local value = controller.buttons and controller.buttons[raw_button]
+                if value and value.down then snapshot.buttons = set_flag(snapshot.buttons, flag) end
+            end
+        end
+        return snapshot
+    end
+    local pad
+    if index and index >= 4 and index < 8 and io.gamepads then
+        pad = io.gamepads(index - 3)
+    else
+        pad = io.gamepad
+    end
+    return {buttons=pad and pad.buttons or 0, lx=pad and pad.lx or 0,
+        ly=pad and pad.ly or 0, rx=pad and pad.rx or 0, ry=pad and pad.ry or 0}
 end
 
 function inputs.mousewheel()
@@ -246,7 +288,16 @@ local last_mouse_pos = nil
 set_callback(function()
     previous_frame_gamepad = current_frame_gamepad
     previous_frame_mouse = current_frame_mouse
-    current_frame_gamepad = get_io().gamepad
+    current_frame_gamepad = assigned_gamepad()
+    for _, button in pairs(GAMEPAD) do
+        if type(button) == 'number' then
+            local was_down = inputs.gamepad_button_down(button, previous_frame_gamepad)
+            local is_down = inputs.gamepad_button_down(button, current_frame_gamepad)
+            if is_down and not was_down then pending_gamepad_presses[button] = true end
+            if was_down and not is_down then pending_gamepad_releases[button] = true end
+        end
+    end
+
     current_frame_mouse = {}
     for i, v in ipairs(get_io().mousedown) do
         current_frame_mouse[i] = v
@@ -258,7 +309,10 @@ set_callback(function()
         inputs.active_mode = MODE.MOUSE
     elseif inputs.key_press(KEYBOARD.UP_ARROW) or inputs.key_press(KEYBOARD.DOWN_ARROW) or inputs.key_press(KEYBOARD.RIGHT_ARROW) or inputs.key_press(KEYBOARD.LEFT_ARROW) then
         inputs.active_mode = MODE.KEYBOARD
-    elseif inputs.gamepad_button_press(GAMEPAD.UP) or inputs.gamepad_button_press(GAMEPAD.DOWN) or inputs.gamepad_button_press(GAMEPAD.LEFT) or inputs.gamepad_button_press(GAMEPAD.RIGHT) then
+    elseif (inputs.gamepad_button_down(GAMEPAD.UP, current_frame_gamepad) and not inputs.gamepad_button_down(GAMEPAD.UP, previous_frame_gamepad))
+        or (inputs.gamepad_button_down(GAMEPAD.DOWN, current_frame_gamepad) and not inputs.gamepad_button_down(GAMEPAD.DOWN, previous_frame_gamepad))
+        or (inputs.gamepad_button_down(GAMEPAD.LEFT, current_frame_gamepad) and not inputs.gamepad_button_down(GAMEPAD.LEFT, previous_frame_gamepad))
+        or (inputs.gamepad_button_down(GAMEPAD.RIGHT, current_frame_gamepad) and not inputs.gamepad_button_down(GAMEPAD.RIGHT, previous_frame_gamepad)) then
         inputs.active_mode = MODE.GAMEPAD
     end
     if inputs.active_mode ~= previous_active_mode then
