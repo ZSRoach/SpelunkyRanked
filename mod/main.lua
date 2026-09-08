@@ -1,7 +1,7 @@
 meta = {
     name = 'S2 Ranked',
     version = '1.23',
-    component_version = '1.23.1',
+    component_version = '1.23.2',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -2962,11 +2962,11 @@ function renderPrivateRoomMenu(render_ctx)
         local full, dnf, forfeited, finished = {}, {}, {}, {}
         for _, p in ipairs(privatePlayersProgress) do
             if p.result == "finished" then
-                table.insert(finished, { player_id = p.steam_id, player_name = p.name, finishTime = p.completion_time, placement = p.placement })
+                table.insert(finished, { player_id = p.steam_id, player_name = p.name, finishTime = p.completion_time, placement = p.placement, deaths = p.deaths })
             elseif p.result == "forfeited" then
-                table.insert(forfeited, { player_id = p.steam_id, player_name = p.name, forfeited = true })
-            else 
-                table.insert(dnf, { player_id = p.steam_id, player_name = p.name, area = p.furthest_area, level = p.furthest_level, theme = p.furthest_theme, dnf = true })
+                table.insert(forfeited, { player_id = p.steam_id, player_name = p.name, forfeited = true, deaths = p.deaths })
+            else
+                table.insert(dnf, { player_id = p.steam_id, player_name = p.name, area = p.furthest_area, level = p.furthest_level, theme = p.furthest_theme, dnf = true, deaths = p.deaths })
             end
         end
 
@@ -7145,18 +7145,18 @@ function renderPauseProgress(render_ctx)
 
         --exact progress abstracted, as to not reveal specifics during the match
         if p.forfeited then
-            renderText(render_ctx,"FORFEIT - "..p.player_name,0,(top-i*(gap))*ratio,size, red)
+            renderText(render_ctx,"FORFEIT - "..p.player_name,-.7,(top-i*(gap))*ratio,size, red)
         elseif p.finishTime then
-            renderText(render_ctx,"FINISHED - "..p.player_name,0,ratio*(top-i*(gap)),size, green)
+            renderText(render_ctx,"FINISHED - "..p.player_name,-.7,ratio*(top-i*(gap)),size, green)
         else
             if p.area == 7 and p.level >= 5 then
                 if p.level <=7 then
-                    renderText(render_ctx,"ENTERED 7-5 - "..p.player_name,0,(top-i*(gap))*ratio,size, yellow)
+                    renderText(render_ctx,"ENTERED 7-5 - "..p.player_name,-.7,(top-i*(gap))*ratio,size, yellow)
                 else
-                    renderText(render_ctx,"ENTERED 7-"..((p.level)//4)*4 .." - "..p.player_name,0,(top-i*(gap))*ratio,size, yellow)
+                    renderText(render_ctx,"ENTERED 7-"..((p.level)//4)*4 .." - "..p.player_name,-.7,(top-i*(gap))*ratio,size, yellow)
                 end 
             else
-                renderText(render_ctx,"IN "..abstractThemeName(p.theme).." - "..p.player_name,0,(top-i*(gap))*ratio,size, yellow)
+                renderText(render_ctx,"IN "..abstractThemeName(p.theme).." - "..p.player_name,-.7,(top-i*(gap))*ratio,size, yellow)
             end
         end
     end
