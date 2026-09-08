@@ -1,7 +1,7 @@
 meta = {
     name = 'S2 Ranked',
     version = '1.23',
-    component_version = '1.23.0',
+    component_version = '1.23.1',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -4360,8 +4360,6 @@ function timedOps()
                 end, 60)
                 -- 10 second window for match found message
                 local id2 = set_global_timeout(function()
-                    preMatch = false
-                    prepBans()
                     clear_callback(id)
                     play_sound(VANILLA_SOUND.MENU_CHARSEL_SELECTION2, -1)
                 end,599)
