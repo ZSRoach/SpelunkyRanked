@@ -15,6 +15,36 @@ tetrisCloseInputConsumed = false
 
 -- BEGIN ranked raw keyboard navigation
 local ranked_keys_previous, ranked_keys_pending = {}, {}
+local ranked_pad_previous, ranked_pad_pending = {}, {}
+local ranked_menu_input_used = false
+local ranked_chat_input_used = false
+local ranked_input_context = nil
+local ranked_wait_for_release = true
+
+local function ranked_menu_context()
+    return table.concat({tostring(mainMenuOpen), tostring(menuPage), tostring(privateRoomMenuOpen),
+        tostring(privateRoomPage), tostring(privateConfigPage), tostring(pracSignOpen), tostring(pracSignPage),
+        tostring(privateConfirmLeave), tostring(privateConfirmStart), tostring(chatting),
+        tostring(getCurrentAlert and getCurrentAlert())}, "|")
+end
+
+local function ranked_check_context()
+    local context = ranked_menu_context()
+    if context ~= ranked_input_context then
+        ranked_input_context = context
+        ranked_wait_for_release = true
+        ranked_keys_pending, ranked_pad_pending = {}, {}
+    end
+end
+
+local function ranked_claim_menu_input()
+    ranked_check_context()
+    if ranked_wait_for_release or ranked_menu_input_used or chatting or buttonCooldown then return false end
+    if not game_manager.game_props.game_has_focus or game_manager.pause_ui.visibility ~= 0 then return false end
+    ranked_menu_input_used = true
+    return true
+end
+
 local function ranked_key_pressed(code)
     if type(code) == 'number' and ranked_keys_pending[code] == true then
         ranked_keys_pending[code] = false
@@ -23,15 +53,59 @@ local function ranked_key_pressed(code)
     return false
 end
 
+local function ranked_gamepad_pressed(button)
+    local pressed = ranked_pad_pending[button] == true
+    ranked_pad_pending[button] = false
+    -- Stick and D-pad aliases represent one navigation action.
+    local aliases = {{inputs.GAMEPAD.UP, inputs.GAMEPAD.DPAD_UP},
+        {inputs.GAMEPAD.DOWN, inputs.GAMEPAD.DPAD_DOWN},
+        {inputs.GAMEPAD.LEFT, inputs.GAMEPAD.DPAD_LEFT},
+        {inputs.GAMEPAD.RIGHT, inputs.GAMEPAD.DPAD_RIGHT}}
+    if pressed then
+        for _, pair in ipairs(aliases) do
+            if button == pair[1] or button == pair[2] then
+                ranked_pad_pending[pair[1]], ranked_pad_pending[pair[2]] = false, false
+            end
+        end
+    end
+    return pressed
+end
+
+local function ranked_confirm_pressed(confirm)
+    local enter = ranked_key_pressed(RAW_KEY.RETURN)
+    local numpad = ranked_key_pressed(RAW_KEY.NUMPADENTER)
+    local jump = ranked_key_pressed(confirm)
+    return enter or numpad or jump
+end
+
 set_callback(function()
+    ranked_menu_input_used = false
+    ranked_chat_input_used = false
+    ranked_check_context()
     local raw = get_raw_input()
     local props = game_manager and game_manager.game_props
     local focused = props ~= nil and props.game_has_focus ~= false
+    local menu_active = focused and (mainMenuOpen or (getCurrentAlert and getCurrentAlert())) and not chatting and not buttonCooldown
+        and not tetrisCloseInputConsumed and not (mainMenuOpen and privateRoomPage == 4)
+        and game_manager.pause_ui and game_manager.pause_ui.visibility == 0
     for code = 0, 111 do
         local key = raw and raw.keyboard[code]
-        local down = focused and key ~= nil and key.down == true
-        if down and not ranked_keys_previous[code] then ranked_keys_pending[code] = true end
+        local down = key ~= nil and key.down == true
+        ranked_keys_pending[code] = menu_active and not ranked_wait_for_release and down and not ranked_keys_previous[code] or false
         ranked_keys_previous[code] = down
+    end
+    for _, button in pairs(inputs.GAMEPAD) do
+        local down = inputs.gamepad_button_down(button) == true
+        ranked_pad_pending[button] = menu_active and not ranked_wait_for_release and down and not ranked_pad_previous[button] or false
+        ranked_pad_previous[button] = down
+    end
+    if not menu_active then
+        ranked_wait_for_release = true
+    elseif ranked_wait_for_release then
+        -- Seed every key/button at the handoff, then accept only fresh edges.
+        -- A held movement key or drifting stick must not lock unrelated controls.
+        ranked_wait_for_release = false
+        ranked_menu_input_used = true
     end
 end, ON.GUIFRAME)
 
@@ -478,8 +552,44 @@ annoyingCritters = {
     ENT_TYPE.MONS_CRITTERPENGUIN,
 }
 
-register_option_bool("chatEnabled", "Show incoming chat messages (unfiltered)", true)
-register_option_bool("chatExplanation", "Press Forward Slash (/) during category bans or the match to send a message.", false)
+register_option_bool("chatEnabled", "Show player chat messages (area and match updates stay visible)", true)
+local pickingChatKey = false
+register_option_callback("chatOpenKey", KEY.OEM_2, function(ctx)
+    local binding = options.chatOpenKey or KEY.OEM_2
+    if ctx:win_button("Open chat: "..key_name(binding).."##chatOpenKey") then
+        pickingChatKey = true
+    end
+    if ctx:win_button("Reset chat key to /") then
+        pickingChatKey = false
+        options.chatOpenKey = KEY.OEM_2
+        binding = KEY.OEM_2
+        save_script()
+    end
+    if pickingChatKey then
+        local selected = ctx:key_picker("Press the key or key combination to open chat", KEY_TYPE.KEYBOARD)
+        if selected ~= -1 then
+            binding = selected
+            options.chatOpenKey = selected
+            pickingChatKey = false
+            save_script()
+        end
+    end
+    return binding
+end)
+set_callback(function(ctx)
+    ctx:save(json.encode({chatOpenKey = options.chatOpenKey}))
+end, ON.SAVE)
+set_callback(function(ctx)
+    local saved = ctx:load()
+    if saved and saved ~= "" then
+        local ok, config = pcall(json.decode, saved)
+        if ok and type(config) == "table" and type(config.chatOpenKey) == "number"
+            and config.chatOpenKey > 0 and config.chatOpenKey % 1 == 0 then
+            options.chatOpenKey = config.chatOpenKey
+        end
+    end
+end, ON.LOAD)
+register_option_bool("chatExplanation", "Use your Open chat key during category bans, matches, or in private rooms.", false)
 register_option_int("chatMessageLimit", "Max number of messages allowed on screen at once", 5, 1, 10)
 register_option_int("chatMessageDuration", "How long messages should show for in seconds", 10, 1, 15)
 
@@ -1103,10 +1213,12 @@ function spawnSign()
         end)
     else
         button_prompts.spawn_button_prompt_on(button_prompts.PROMPT_TYPE.INTERACT, signUID, function()
-            if postMatch or matchStarted then return end
+            if postMatch or matchStarted or mainMenuOpen then return end
             if signDelay then return end
             defaultMenu()
             mainMenuOpen = true
+            ranked_wait_for_release = true
+            ranked_keys_pending, ranked_pad_pending = {}, {}
             blockInputs()
         end)
     end
@@ -1221,7 +1333,8 @@ function menuInputHandle()
         return
     end
     if game_manager.pause_ui.visibility ~= 0 then return end
-    if chatting or buttonCooldown then return end
+    if menuPage == 4 then return end
+    if not ranked_claim_menu_input() then return end
     -- Raw input stays enabled; POST_PROCESS_INPUT blocks vanilla menu actions.
     local back = state.player_inputs.player_slot_1.input_mapping_keyboard.bomb
     local confirm = state.player_inputs.player_slot_1.input_mapping_keyboard.jump
@@ -1240,10 +1353,10 @@ function menuInputHandle()
 
     if pracSignOpen then --menu page 2
         if pracSignPage == 0 then
-            if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) then
                 pracPage0Index = (pracPage0Index - 1)%4
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) then
                 pracPage0Index = (pracPage0Index +1)%4
             end
             if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) then
@@ -1252,7 +1365,7 @@ function menuInputHandle()
             if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) then
                 pracPage0Index = (pracPage0Index + 1)%4
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                 if pracPage0Index == 0 then
                     pracCatMode = not pracCatMode
                 elseif pracPage0Index == 1 then
@@ -1274,18 +1387,18 @@ function menuInputHandle()
                     pracPage0Index = 0
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                 pracSignOpen = false
                 pracPage0Index = 0
                 menuPage = 0
             end
         elseif pracSignPage == 1 then
-            if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) then
                 if pracPage1Column ~= 2 then
                     pracPage1Row = (pracPage1Row - 1)%8
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) then
                 if pracPage1Column ~= 2 then
                     pracPage1Row = (pracPage1Row + 1)%8
                 end
@@ -1300,13 +1413,13 @@ function menuInputHandle()
                     pracPage1Row = (pracPage1Row + 1)%8
                 end
             end
-            if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+            if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                 pracPage1Column = (pracPage1Column-1)%3
             end
-            if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+            if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                 pracPage1Column = (pracPage1Column+1)%3
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                 if pracPage1Column == 2 then
                     pracCheckpoints = not pracCheckpoints
                 elseif pracPage1Column == 1 then
@@ -1317,13 +1430,13 @@ function menuInputHandle()
                     pracCategory = leftCategoryList[pracPage1Row+1]
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                 pracSignPage = 0
                 pracPage1Column = 0
                 pracPage1Row = 0
             end
         elseif pracSignPage == 2 then
-            if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) or inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) or inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) then
                 if pracPage2Column <= 3 then
                     pracPage2Row = (pracPage2Row-1)%7
                 elseif pracPage2Column == 4 or pracPage2Column == 6 or pracPage2Column == 8 then
@@ -1340,7 +1453,7 @@ function menuInputHandle()
                     end
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) or inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) or inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) then
                 if pracPage2Column <= 3 then
                     pracPage2Row = (pracPage2Row+1)%7
                 elseif pracPage2Column == 4 or pracPage2Column == 6 or pracPage2Column == 8 then
@@ -1357,7 +1470,7 @@ function menuInputHandle()
                     end
                 end
             end
-            if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+            if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                 if pracPage2Column == 6 or pracPage2Column == 8 or pracPage2Column == 7 or pracPage2Column == 5 then
                     pracPage2Column = (pracPage2Column-2)%9
                 elseif pracPage2Column == 0 then
@@ -1378,7 +1491,7 @@ function menuInputHandle()
                     pracPage2Column = (pracPage2Column-1)%9
                 end
             end
-            if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+            if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                 if pracPage2Column == 4 or pracPage2Column == 5 or pracPage2Column == 6 or pracPage2Column == 7 then
                     pracPage2Column = (pracPage2Column+2)%9
                 elseif pracPage2Column == 3 then
@@ -1399,7 +1512,7 @@ function menuInputHandle()
                     pracPage2Column = (pracPage2Column+1)%9
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                 if pracPage2Row == 0 then
                     if pracPage2Column == 0 then
                         pracPackSelected = 0
@@ -1492,14 +1605,14 @@ function menuInputHandle()
                     pracRopes = (pracRopes -1)%100 
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                 pracSignPage = 0
                 pracPage2Column = 0
                 pracPage2Row = 0
             end
         end
     elseif menuPage == 1 then -- queue page = menu page 1
-        if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+        if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
             if not inQueue and bridgeConnected then
                 udpSend("queue_ready")
                 inQueue = true
@@ -1512,22 +1625,22 @@ function menuInputHandle()
                 processChat("Your game is not connected to the Ranked Server.", "WARN")
             end
         end
-        if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+        if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
             menuPage = 0
         end
     elseif privateRoomMenuOpen then -- privateroom menu collection exists in menu page 3
         if privateRoomPage == 0 then -- host/join decision page
-            if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                 menuPage = 0
                 privateRoomMenuOpen = false
             end
-            if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+            if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                 privatePage0Index = (privatePage0Index-1)%2
             end
-            if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+            if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                 privatePage0Index = (privatePage0Index+1)%2
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                 if privatePage0Index == 0 then -- tell server to make new private room, receive room data w/ ack.
                     udpSend("create_room")
                     privatePendingHost = true
@@ -1542,40 +1655,40 @@ function menuInputHandle()
                 local codeInputs = {"A","B","C","D","1","2","3","4",}
                 return codeInputs[(row*4)+col+1]
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                 privateRoomPage = 0
                 privateEnterCode = ""
                 buttonStandardization()
             end
-            if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+            if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                 if privatePageRow ~= 2 then
                     privatePageColumn = (privatePageColumn-1)%4
                 else
                     privatePageColumn = (privatePageColumn%2)+1
                 end
             end
-            if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+            if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                 if privatePageRow ~= 2 then
                     privatePageColumn = (privatePageColumn+1)%4
                 else
                     privatePageColumn = (privatePageColumn%2)+1
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) or inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) or inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) then
                 if privatePageColumn == 0 or privatePageColumn == 3 then    
                     privatePageRow = (privatePageRow-1)%2
                 else
                     privatePageRow = (privatePageRow-1)%3
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) or inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) or inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) then
                 if privatePageColumn == 0 or privatePageColumn == 3 then    
                     privatePageRow = (privatePageRow+1)%2
                 else
                     privatePageRow = (privatePageRow+1)%3
                 end
             end
-            if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                 if privatePageRow ~= 2 then
                     if #privateEnterCode < 5 then
                         privateEnterCode = privateEnterCode..buttonDecode(privatePageRow, privatePageColumn)
@@ -1601,16 +1714,16 @@ function menuInputHandle()
         elseif privateRoomPage == 2 then -- private lobby
             if privateHost then
                 if not privateConfirmLeave and not privateConfirmStart then -- confirmation window not open
-                    if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                    if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                         privatePageColumn = (privatePageColumn-1)%5
                     end
-                    if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                    if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                         privatePageColumn = (privatePageColumn+1)%5
                     end
-                    if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                    if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                         privateConfirmLeave = true
                     end
-                    if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                    if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                         if privatePageColumn == 0 then -- leave
                             privateConfirmLeave = true
                         elseif privatePageColumn == 1 then -- config
@@ -1628,11 +1741,11 @@ function menuInputHandle()
                     end
                 else -- confirmation window open
                     if privateConfirmLeave then -- confirm for leaving private room as host
-                        if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                        if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                             privateConfirmLeave = false
                             privatePageRow = 0
                         end
-                        if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                        if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                             if privatePageRow == 0 then 
                                 privatePageRow = 0
                             else -- leaving the private room as host, tell server, wait for ack
@@ -1641,18 +1754,18 @@ function menuInputHandle()
                             end
                             privateConfirmLeave = false
                         end
-                        if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                        if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                             privatePageRow = (privatePageRow-1)%2
                         end
-                        if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                        if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                             privatePageRow = (privatePageRow+1)%2
                         end
                     else --confirm for starting private room
-                        if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                        if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                             privateConfirmStart = false
                             privatePageRow = 0
                         end
-                        if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                        if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                             if privatePageRow == 0 then 
                                 privatePageRow = 0
                             else -- starting the private room, tell server, wait for ack
@@ -1661,10 +1774,10 @@ function menuInputHandle()
                             end
                             privateConfirmStart = false
                         end
-                        if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                        if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                             privatePageRow = (privatePageRow-1)%2
                         end
-                        if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                        if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                             privatePageRow = (privatePageRow+1)%2
                         end
                     end
@@ -1672,16 +1785,16 @@ function menuInputHandle()
                 
             else
                 if not privateConfirmLeave then
-                    if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                    if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                         privatePageColumn = (privatePageColumn-1)%3
                     end
-                    if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                    if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                         privatePageColumn = (privatePageColumn+1)%3
                     end
-                    if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                    if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                         privateConfirmLeave = true
                     end
-                    if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                    if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                         if privatePageColumn == 0 then--leave
                             privateConfirmLeave = true
                         elseif privatePageColumn == 1 then -- tetris
@@ -1693,11 +1806,11 @@ function menuInputHandle()
                         end
                     end
                 else -- leave confirmation open
-                    if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                    if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                         privateConfirmLeave = false
                         privatePageRow = 0
                     end
-                    if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                    if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                         if privatePageRow == 0 then 
 
                         else -- leaving as non host, tell server, wait for ack
@@ -1706,10 +1819,10 @@ function menuInputHandle()
                         privateConfirmLeave = false
                         privatePageRow = 0
                     end
-                    if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                    if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                         privatePageRow = (privatePageRow-1)%2
                     end
-                    if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                    if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                         privatePageRow = (privatePageRow+1)%2
                     end
                 end
@@ -1752,18 +1865,18 @@ function menuInputHandle()
                 udpSend("update_room_config",payload)
             end
             if privateConfigPage == 0 then -- game/cat sidebar
-                if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                     privateRoomPage = 2
                     buttonStandardization()
                     updateConfig(-1)
                 end
-                if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) then
+                if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) then
                     privatePageRow = (privatePageRow + 1)%2
                 end
-                if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) then
+                if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) then
                     privatePageRow = (privatePageRow - 1)%2
                 end
-                if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                     if privatePageRow == 0 then -- cat settings
                         privateConfigPage = 1
                         buttonStandardization()
@@ -1773,18 +1886,18 @@ function menuInputHandle()
                     end
                 end
             elseif privateConfigPage == 1 then -- cat main page
-                if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                     privateConfigPage = 0
                     buttonStandardization()
                     updateConfig(1)
                 end
-                if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                     privatePageColumn = (privatePageColumn+ 1)%2
                 end
-                if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                     privatePageColumn = (privatePageColumn - 1)%2
                 end
-                if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                     if privatePageColumn == 0 then -- change preset/custom mode
                         privateRunCustom = not privateRunCustom
                     else -- category settings
@@ -1798,24 +1911,24 @@ function menuInputHandle()
                     updateConfig(1)
                 end
             elseif privateConfigPage == 2 then -- preset cat
-                if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                     privateConfigPage = 1
                     buttonStandardization()
                     updateConfig(2)
                 end
-                if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) then
+                if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) then
                     privatePageRow = (privatePageRow - 1)%8
                 end
-                if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) then
+                if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) then
                     privatePageRow = (privatePageRow + 1)%8
                 end
-                if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                     privatePageColumn = (privatePageColumn+ 1)%3
                 end
-                if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                     privatePageColumn = (privatePageColumn - 1)%3
                 end
-                if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                     if privatePageColumn == 2 then
                         privateRandom = not privateRandom
                     end
@@ -1830,12 +1943,12 @@ function menuInputHandle()
                     updateConfig(2)
                 end
             elseif privateConfigPage == 3 then -- customize cat
-                if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                     privateConfigPage = 1
                     buttonStandardization()
                     updateConfig(3)
                 end
-                if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) then
+                if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) then
                     if privatePageRow == 0 and privatePageColumn > 1 and privatePageColumn < 9 then
                         privatePageRow = 3
                         if privatePageColumn == 5 then
@@ -1859,7 +1972,7 @@ function menuInputHandle()
                         privatePageRow = 2
                     end
                 end
-                if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) then
+                if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) then
                     if privatePageRow == 0 and privatePageColumn <=2 then
                         privatePageRow = 2
                         privatePageColumn = 2
@@ -1887,7 +2000,7 @@ function menuInputHandle()
                         privatePageRow = 0
                     end
                 end
-                if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                     if privatePageRow == 0 then
                         if privatePageColumn == 2 or privatePageColumn == 6 then
                             privatePageColumn = privatePageColumn + 2
@@ -1914,7 +2027,7 @@ function menuInputHandle()
                         end
                     end
                 end
-                if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                     if privatePageRow == 0 then
                         if privatePageColumn == 4 or privatePageColumn == 8 then
                             privatePageColumn = privatePageColumn - 2
@@ -1941,7 +2054,7 @@ function menuInputHandle()
                         end
                     end
                 end
-                if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                     if privatePageRow == 0 then
                         if privatePageColumn == 0 then
                             privateWorld2 = 1
@@ -2017,13 +2130,13 @@ function menuInputHandle()
                     updateConfig(3)
                 end
             elseif privateConfigPage == 4 then -- game settings
-                if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
                     privateConfigPage = 0
                     buttonStandardization()
                     privatePageRow = 1
                     updateConfig(4)
                 end
-                if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) then
+                if inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) then
                     if privatePageColumn ~= 3 then
                         if privatePageRow == 0 then
                             privatePageRow = 2
@@ -2032,7 +2145,7 @@ function menuInputHandle()
                         end
                     end
                 end
-                if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) then
+                if inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) then
                     if privatePageColumn ~= 3 then
                         if privatePageRow == 0 then
                             privatePageRow = 2
@@ -2041,7 +2154,7 @@ function menuInputHandle()
                         end
                     end
                 end
-                if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+                if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
                     if privatePageColumn == 3 then
                         privatePageRow = 0
                     end
@@ -2050,7 +2163,7 @@ function menuInputHandle()
                         privatePageRow = 1
                     end
                 end
-                if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+                if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
                     if privatePageColumn == 3 then
                         privatePageRow = 0
                     end
@@ -2059,7 +2172,7 @@ function menuInputHandle()
                         privatePageRow = 1
                     end
                 end
-                if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+                if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                     if privatePageRow == 1 then
                         privateDoCheckpoints = not privateDoCheckpoints
                     elseif privatePageRow == 0 then
@@ -2090,7 +2203,7 @@ function menuInputHandle()
             -- Tetris owns its mapped controls and reports close via on_close.
             -- The parent continues owning the menu's gameplay input block.
         elseif privateRoomPage == 6 then
-            if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+            if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
                 privateRoomPage = 4
                 tetris.open()
             end
@@ -2099,13 +2212,13 @@ function menuInputHandle()
     elseif menuPage == 4 then -- preMatch (bans, match found)
 
     else -- regular main menu on page 0
-        if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+        if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
             mainMenuIndex = (mainMenuIndex-1)%3
         end
-        if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+        if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
             mainMenuIndex = (mainMenuIndex+1)%3
         end
-        if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+        if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
             if mainMenuIndex == 0 then
                 menuPage = 1
             elseif mainMenuIndex == 1 then
@@ -2122,7 +2235,7 @@ function menuInputHandle()
                 menuPage = 3
             end
         end
-        if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+        if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
             mainMenuOpen = false
             returnInputs()
             signDelay = true
@@ -3334,6 +3447,7 @@ end
 function alertInput()
     local alert = getCurrentAlert()
     if not alert then return end
+    if not ranked_claim_menu_input() then return end
     local back = state.player_inputs.player_slot_1.input_mapping_keyboard.bomb
     local confirm = state.player_inputs.player_slot_1.input_mapping_keyboard.jump
     local up = state.player_inputs.player_slot_1.input_mapping_keyboard.up
@@ -3341,22 +3455,22 @@ function alertInput()
     local left = state.player_inputs.player_slot_1.input_mapping_keyboard.left
     local right = state.player_inputs.player_slot_1.input_mapping_keyboard.right
     blockInputs()
-    if inputs.gamepad_button_press(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
+    if ranked_gamepad_pressed(inputs.GAMEPAD.B) or ranked_key_pressed(RAW_KEY.ESCAPE) or (back ~= nil and ranked_key_pressed(back)) then
         -- do nothing 
     end
-    if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+    if inputs.key_press(inputs.KEYBOARD.LEFT_ARROW) or ranked_key_pressed(left) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
         alertIndex = (alertIndex - 1)%2
     end
-    if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+    if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or ranked_key_pressed(right) or ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
         alertIndex = (alertIndex + 1)%2
     end
-    if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_UP) or inputs.gamepad_button_press(inputs.GAMEPAD.UP) or inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) then
+    if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_UP) or ranked_gamepad_pressed(inputs.GAMEPAD.UP) or inputs.key_press(inputs.KEYBOARD.UP_ARROW) or ranked_key_pressed(up) then
         -- do nothing
     end
-    if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_DOWN) or inputs.gamepad_button_press(inputs.GAMEPAD.DOWN) or inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) then
+    if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_DOWN) or ranked_gamepad_pressed(inputs.GAMEPAD.DOWN) or inputs.key_press(inputs.KEYBOARD.DOWN_ARROW) or ranked_key_pressed(down) then
         -- do nothing
     end
-    if inputs.gamepad_button_press(inputs.GAMEPAD.A) or ranked_key_pressed(confirm) then
+    if ranked_gamepad_pressed(inputs.GAMEPAD.A) or ranked_confirm_pressed(confirm) then
         if alert.alerttype == "ack" then
             popAlert()
         elseif alert.alerttype == "choice" then
@@ -3536,6 +3650,7 @@ function renderBanWindow(render_ctx)
 end
 
 function banWindowInput()
+    if not ranked_claim_menu_input() then return end
     if not bansFirst then
         banButtonIndex = -1
         return
@@ -3567,13 +3682,13 @@ function banWindowInput()
             break
         end
     end
-    if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_LEFT) or inputs.gamepad_button_press(inputs.GAMEPAD.LEFT) then
+    if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_LEFT) or ranked_gamepad_pressed(inputs.GAMEPAD.LEFT) then
         banButtonIndex = validButtons[((index-1)%(#validButtons))+1]
     end
-    if inputs.gamepad_button_press(inputs.GAMEPAD.DPAD_RIGHT) or inputs.gamepad_button_press(inputs.GAMEPAD.RIGHT) then
+    if ranked_gamepad_pressed(inputs.GAMEPAD.DPAD_RIGHT) or ranked_gamepad_pressed(inputs.GAMEPAD.RIGHT) then
         banButtonIndex = validButtons[((index+1)%(#validButtons))+1]
     end
-    if inputs.gamepad_button_press(inputs.GAMEPAD.A) then
+    if ranked_gamepad_pressed(inputs.GAMEPAD.A) then
         banCategory(banButtonIndex)
     end
     if inputs.key_press(inputs.KEYBOARD.RIGHT_ARROW) or inputs.key_press(inputs.KEYBOARD.D) then
@@ -4235,10 +4350,7 @@ function timedOps()
             elseif event == "postmatch_closed" then
                 forceEndPostMatch()
             elseif event == "receive_chat" then
-                --only show chat messages if user has them enabled
-                if options.chatEnabled then
-                    processChat(data.message, data.sender_name)
-                end
+                processChat(data.message, data.sender_name, true)
             elseif event == "rank_reveal" then
                 if revealingRank < 1 then
                     revealingRank = 1
@@ -7718,16 +7830,11 @@ end
 --chat popups, some form of message queue
 function renderChat(render_ctx)
     local heightIndex = 0
-    if not chatting then
-        for i = 1, #messageList do
-            if messageList[i][2] >= 0 then
-                renderTextLeft(render_ctx, messageList[i][3]..": "..messageList[i][1],-.98,(-.3+(heightIndex*.03))*ratio,.0006, white)
-                heightIndex = heightIndex + 1
-            end
-        end
-    else
-        for i = 1, #messageList do
-            renderTextLeft(render_ctx, messageList[i][3]..": "..messageList[i][1],-.98,(-.3+(heightIndex*.03))*ratio,.0006, white)
+    for i = 1, #messageList do
+        local message = messageList[i]
+        local visible = message[4] ~= true or options.chatEnabled
+        if visible and (chatting or message[2] >= 0) then
+            renderTextLeft(render_ctx, message[3]..": "..message[1],-.98,(-.3+(heightIndex*.03))*ratio,.0006, white)
             heightIndex = heightIndex + 1
         end
     end
@@ -7741,10 +7848,12 @@ function expireChats()
     end
 end
 
-function processChat(message, sender)
+function processChat(message, sender, playerChat)
+    -- Player messages are explicitly tagged; sender names cannot impersonate system updates.
+    if playerChat and not options.chatEnabled then return end
     local list = {}
     local duration = options.chatMessageDuration*60
-    local mes = {message, duration, sender}
+    local mes = {message, duration, sender, playerChat == true}
     table.insert(list, mes)
     for i = 1, #messageList do
         if i == options.chatMessageLimit then
@@ -7865,13 +7974,26 @@ function doCommand(command)
     end
 end
 
+local function closeRankedChat()
+    -- Do not replay Escape, Bomb, or navigation typed into chat in the room menu.
+    ranked_keys_pending, ranked_pad_pending = {}, {}
+    for _, button in pairs(inputs.GAMEPAD) do ranked_gamepad_pressed(button) end
+    chatting = false
+    chatMessage = ""
+    get_io().wantkeyboard = false
+    if mainMenuOpen or (matchStarted and (banPhase or changingSeed)) then
+        blockInputs()
+    else
+        returnInputs()
+    end
+    startButtonCooldown()
+end
+
 function chatInputHandle()
+    if ranked_chat_input_used then return end
+    ranked_chat_input_used = true
     if not (matchStarted or banPhase or postMatch or inPrivateRoom) then
-        if chatting then
-            returnInputs()
-            chatting = false
-            chatMessage = ""
-        end
+        if chatting then closeRankedChat() end
         return
     end
     local input = get_io()
@@ -7886,37 +8008,19 @@ function chatInputHandle()
         if input.keypressed(KEY.RETURN) then
             if isCommand() then
                 doCommand(chatMessage)
-                returnInputs()
-                chatting = false
-                chatMessage = ""
-                return
+            elseif chatMessage ~= "" then
+                processChat(chatMessage, "You", true)
+                local payload = {chatMessage}
+                udpSend("send_chat", payload)
             end
-            if chatMessage == "" then
-                chatting = false
-                chatMessage = ""
-                returnInputs()
-                return
-            end
-            if not inPrivateRoom and not mainMenuOpen then
-                returnInputs()
-            end
-            processChat(chatMessage, "You")
-            local payload = {chatMessage}
-            udpSend("send_chat", payload)
-            chatMessage = ""
-            chatting = false
-            startButtonCooldown()
+            closeRankedChat()
+            return
         end
         if input.keypressed(27) or input.keypressed(KEY.OL_MOD_SHIFT | 27) then
             set_global_timeout(function()
                 if game_manager.pause_ui.visibility ~=0 then game_manager.pause_ui.visibility = 0 end
             end, 2)
-            chatting = false
-            chatMessage = ""
-            if not inPrivateRoom and not mainMenuOpen then
-                returnInputs()
-            end
-            startButtonCooldown()
+            closeRankedChat()
             return
         end
         if input.keypressed(KEY.BACKSPACE) then
@@ -8064,7 +8168,9 @@ function chatInputHandle()
             addToMessage(" ",shift)
         end
     else
-        if input.keypressed(KEY.OEM_2) then
+        if not pickingChatKey and not buttonCooldown and not input.wantkeyboard
+            and game_manager.game_props.game_has_focus ~= false
+            and input.keypressed(options.chatOpenKey or KEY.OEM_2) then
             chatting = true
             chatMessage = ""
         end
