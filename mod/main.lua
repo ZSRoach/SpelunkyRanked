@@ -1,7 +1,7 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.24',
-    component_version = '1.24.1',
+    version = '1.25',
+    component_version = '1.25.0',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -678,6 +678,7 @@ sentDrawVote = false
 activeDrawVote = false
 buttonHovering = -1
 
+savedTime = 1
 shopYet = false
 itemsYet = false
 spawnedItems = {}
@@ -5974,9 +5975,6 @@ function transitionHandle()
     if practiceStarted and pracCatMode and pracCheckpoints then
         loadProgress()
     end
-
-    -- removes dark/echoes/level differences
-    state.time_last_level = 0
 end
 
 -- Server excludes the reporting player from room_progress broadcasts (see room_manager.py
@@ -6170,6 +6168,17 @@ function resetHandle()
             end
         end
     end
+    local isNewRace = not(state.pause & 1 == 1 and state.pause & 2 == 2)
+
+    if isNewRace then
+        savedTime = 1
+    else
+        savedTime = state.time_total + 1
+    end
+end
+
+function startHandle()
+    state.time_total = savedTime
 end
 
 function inLevelRequirements() --checks for category violations and requirements that happen mid-level
@@ -9028,9 +9037,18 @@ set_callback(renderDeathScreenChat, ON.RENDER_POST_JOURNAL_PAGE)
 set_callback(categoryHelper, ON.POST_ROOM_GENERATION)
 set_callback(preGenHandle, ON.PRE_LEVEL_GENERATION)
 set_callback(transitionHandle, ON.TRANSITION)
+set_callback(function()
+    state.current_theme:set_pre_init_flags(function()
+        state.time_last_level = 1
+    end)
+    state.current_theme:set_pre_post_transition(function()
+        state.time_last_level = 1
+    end)
+end, ON.TRANSITION)
 set_callback(levelHandle, ON.LEVEL)
 set_callback(guiframeHandle, ON.GUIFRAME)
 set_callback(resetHandle, ON.RESET)
+set_callback(startHandle, ON.START)
 set_pre_entity_spawn(loadCategoryItems, SPAWN_TYPE.LEVEL_GEN_TILE_CODE, MASK.ITEM, replaceable_items)
 set_global_interval(expireChats,1)
 set_global_interval(adjustFade,1)

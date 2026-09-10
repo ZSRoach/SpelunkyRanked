@@ -4,10 +4,10 @@ import os
 import sys
 
 # Bridge version — must match server VERSION (float)
-BRIDGE_VERSION = 1.24
+BRIDGE_VERSION = 1.25
 
-BRIDGE_COMPONENT_VERSION = "1.24.0"
-GAME_COMPONENT_VERSION = "1.24.0" #fallback, mostly ignored
+BRIDGE_COMPONENT_VERSION = "1.25.0"
+GAME_COMPONENT_VERSION = "1.25.0" #fallback, mostly ignored
 GITHUB_OWNER = "ZSRoach"
 GITHUB_REPO = "SpelunkyRanked"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
@@ -37,7 +37,7 @@ UDP_BUFFER_SIZE = 4096
 QUEUE_POLL_INTERVAL = 15  # seconds between /matches/active polls
 FINISHED_MATCH_DISPLAY_SECONDS = 60  # seconds to show finished matches on active page
 UDP_PING_INTERVAL = 2.5   # seconds between pings to Game
-UDP_PONG_TIMEOUT = 5.0     # seconds before considering Game disconnected
+UDP_PONG_TIMEOUT = 10.0     # seconds before considering Game disconnected
 UDP_RETRY_INTERVAL = 0.5   # seconds between critical message retries
 UDP_RETRY_MAX = 5           # max retry attempts for critical messages
 
