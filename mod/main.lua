@@ -5976,7 +5976,7 @@ function transitionHandle()
     end
 
     -- removes dark/echoes/level differences
-    state.time_last_level = 0
+    state.time_last_level = 1
 end
 
 -- Server excludes the reporting player from room_progress broadcasts (see room_manager.py
