@@ -20,6 +20,7 @@ local ranked_menu_input_used = false
 local ranked_chat_input_used = false
 local ranked_input_context = nil
 local ranked_wait_for_release = true
+local stime = 1
 
 local function ranked_menu_context()
     return table.concat({tostring(mainMenuOpen), tostring(menuPage), tostring(privateRoomMenuOpen),
@@ -5976,7 +5977,7 @@ function transitionHandle()
     end
 
     -- removes dark/echoes/level differences
-    state.time_last_level = 0
+    state.time_last_level = 1
 end
 
 -- Server excludes the reporting player from room_progress broadcasts (see room_manager.py
@@ -6132,6 +6133,13 @@ function categoryViolation()
 end
 
 function resetHandle()
+    -- New igt detection
+    is_new_race = not(state.pause & 1 == 1 and state.pause & 2 == 2)
+    if is_new_race then
+        stime = 1
+    else
+        stime = state.time_total + 1
+    end
     if matchStarted then
         doReset = true
         forceSeed()
@@ -6170,6 +6178,10 @@ function resetHandle()
             end
         end
     end
+end
+
+function startHandle()
+    state.time_total = stime;
 end
 
 function inLevelRequirements() --checks for category violations and requirements that happen mid-level
@@ -9031,6 +9043,7 @@ set_callback(transitionHandle, ON.TRANSITION)
 set_callback(levelHandle, ON.LEVEL)
 set_callback(guiframeHandle, ON.GUIFRAME)
 set_callback(resetHandle, ON.RESET)
+set_callback(startHandle, ON.START)
 set_pre_entity_spawn(loadCategoryItems, SPAWN_TYPE.LEVEL_GEN_TILE_CODE, MASK.ITEM, replaceable_items)
 set_global_interval(expireChats,1)
 set_global_interval(adjustFade,1)
