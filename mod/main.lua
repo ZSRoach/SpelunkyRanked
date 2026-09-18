@@ -1,7 +1,7 @@
 meta = {
     name = 'S2 Ranked',
-    version = '1.25',
-    component_version = '1.25.0',
+    version = '1.26',
+    component_version = '1.26.0',
     description = '1v1 Spelunky For Rank',
     author = 'ZSRoach',
     unsafe = true,
@@ -1191,6 +1191,25 @@ function defaultPrivate()
     privateWinners = 1
     privateDoCheckpoints = true
     privateCheckpointDistance = 2
+end
+-- server has no record of the match/room we think we're in (a real desync, not just a
+-- stray/late message) -- drop everything and return to camp so the sign flow can re-open
+-- the menu cleanly, instead of leaving the client stuck showing UI for a match/room that
+-- no longer exists server-side.
+function resyncToCamp(message)
+    for i, id in ipairs(scrapCallbackList) do
+        clear_callback(id)
+    end
+    defaultValues()
+    defaultPrivate()
+    defaultMenu()
+    inPrivateRoom = false
+    if players and players[1] then
+        warp(1,1,THEME.BASE_CAMP)
+    end
+    if message then
+        registerAlert(-1, "ack", message)
+    end
 end
 -- resets violation list
 function violationReset()
@@ -4570,6 +4589,7 @@ function timedOps()
                 prepPrivateLobby()
                 defaultPrivate()
                 inPrivateRoom = false
+                matchStarted = false -- in case host disconnects mid-match
                 privateRoomPage = 0--boot to main private room page
                 local reason
                 if data.reason == "host_left" then
@@ -4621,26 +4641,40 @@ function timedOps()
                 prepPrivateLobby()
                 privateRoomPage = 6
             elseif event == "error" then
-                if data.code ~= "wrong_phase" then -- silently drop wrong_phase errors
-                    if data.code == "in_queue" then
-                        processChat("Leave queue before attempting to join a private room!","Info")
-                    elseif data.code == "already_in_room" then
-                        if inPrivateRoom and not matchStarted then
-                            prepPrivateLobby() -- push into private room if UI non responsive, otherwise drop
-                        end
-                    elseif data.code == "at_capacity" then
-                        registerAlert(-1, "ack", "The server has no more space for private rooms.", "If you think this is an error, contact an admin.")
-                    elseif data.code == "not_found" then
-                        registerAlert(-1, "ack", "That room does not exist.")
-                    elseif data.code == "not_joinable" then
-                        registerAlert(-1, "ack", "You cannot join that room at this time.")
-                    elseif data.code == "full" then
-                        registerAlert(-1, "ack", "This room is full.")
-                    elseif data.code == "banned" then
-                        registerAlert(-1, "ack", "You are banned from private rooms.")
-                    elseif data.code == "already_in_match" then
-                        processChat("You cannot join a private room while in a match!", "Info")
+                if data.code == "wrong_phase" then
+                    -- harmless phase-timing race -- nothing to do
+                elseif data.code == "not_in_room" then
+                    -- server has no room for us at all only a real desync if we think we're
+                    -- still in one a late/stray message after we already left is harmless
+                    if inPrivateRoom then
+                        resyncToCamp("The server has no record of your private room anymore.")
                     end
+                elseif data.code == "not_host" then
+                    registerAlert(-1, "ack", "Only the room host can do that.")
+                elseif data.code == "not_in_activity" then
+                    -- server has no match AND no room for us only a real desync if we think
+                    -- we're still in one of those client-side
+                    if matchStarted or inPrivateRoom then
+                        resyncToCamp("Lost track of your match/room state. Returning to camp.")
+                    end
+                elseif data.code == "in_queue" then
+                    processChat("Leave queue before attempting to join a private room!","Info")
+                elseif data.code == "already_in_room" then
+                    if inPrivateRoom and not matchStarted then
+                        prepPrivateLobby() -- push into private room if UI non responsive, otherwise drop
+                    end
+                elseif data.code == "at_capacity" then
+                    registerAlert(-1, "ack", "The server has no more space for private rooms.", "If you think this is an error, contact an admin.")
+                elseif data.code == "not_found" then
+                    registerAlert(-1, "ack", "That room does not exist.")
+                elseif data.code == "not_joinable" then
+                    registerAlert(-1, "ack", "You cannot join that room at this time.")
+                elseif data.code == "full" then
+                    registerAlert(-1, "ack", "This room is full.")
+                elseif data.code == "banned" then
+                    registerAlert(-1, "ack", "You are banned from private rooms.")
+                elseif data.code == "already_in_match" then
+                    processChat("You cannot join a private room while in a match!", "Info")
                 end
             elseif event == "room_connection_lost" then
                 log_print("WARN: Connection to the server was lost temporarily, but has been restored.")
@@ -5368,7 +5402,7 @@ function practiceWarp()
     math.randomseed(os.time())
     seed = tonumber(generatePracticeSeed(),16)
     force11()
-    if pracCategory == "Abzu%" or pracCategory == "No TP Abzu%" or pracCategory == "Chain Low% Abzu%" then
+    if pracCategory == "Abzu%" or pracCategory == "No TP Abzu%" or pracCategory == "Chain Low% Abzu" then
         tidepool = true
     else
         tidepool = false
@@ -6029,7 +6063,7 @@ function levelHandle()
                 end
             end
             if state.world == 4 and privateWorld4 == 0 then
-                if state.theme == THEME.TIDE_POOL or THEME.ABZU then
+                if state.theme == THEME.TIDE_POOL or state.theme == THEME.ABZU then
                     tidepool = true
                 else
                     tidepool = false
@@ -6069,7 +6103,7 @@ function levelHandle()
             end
         end
         if state.world == 4 then
-            if state.theme == THEME.TIDE_POOL or THEME.ABZU then
+            if state.theme == THEME.TIDE_POOL or state.theme == THEME.ABZU then
                 tidepool = true
             else
                 tidepool = false
@@ -7157,10 +7191,15 @@ function testWin()
     end
     if practiceStarted then
         if state.screen == SCREEN.WIN or state.screen == SCREEN.CONSTELLATION then
+            -- clear seedCache/currentSaves same as the forfeit path (line ~7626) -- otherwise
+            -- this completed run's vault/moon/star/sun/blackmarket/coffin flag positions stay
+            -- cached and get misapplied to the next practice seed's checkpoint restoration.
+            defaultMatchValues()
             prepPracticeMenu()
             furthestLevel = {1,1}
         end
         if pracCategory == "Cosmic Ocean%" and ((state.screen == SCREEN.TRANSITION and state.level >= 20) or (state.screen == SCREEN.LEVEL and state.level >= 21)) and pracCatMode then
+            defaultMatchValues()
             prepPracticeMenu()
             furthestLevel = {1,1}
         end
